@@ -45,7 +45,7 @@ export class SharePointService {
 
     try {
       logger.info({ folderName }, 'Creating directory in SharePoint')
-      return await this.client.api(`/sites/${this.siteId}/drives/${this.driveId}/root/children`).post({
+      return this.client.api(`/sites/${this.siteId}/drives/${this.driveId}/root/children`).post({
         name: folderName,
         folder: {},
         '@microsoft.graph.conflictBehavior': 'replace'
@@ -113,7 +113,7 @@ export class SharePointService {
    */
   async createDirectoryAndUploadFiles(folderName, files) {
     await this.createDirectory(folderName)
-    return await this.uploadFiles(folderName, files)
+    return this.uploadFiles(folderName, files)
   }
 
   async _resolveIds() {

@@ -28,7 +28,7 @@ export const processReportingDataJob = async (server) => {
     const files = await listAllFiles(server.logger)
     server.logger.info(
       `Reporting events files found:
-      ${files.map((f) => `• ${f}`).join('\n')}\n`
+      ${files.map((f) => '• ' + f).join('\n')}\n`
     )
 
     // Process into CSV files
