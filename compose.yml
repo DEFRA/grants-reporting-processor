@@ -14,13 +14,6 @@ services:
     networks:
       - cdp-tenant
 
-  redis:
-    image: redis:7.2.3-alpine3.18
-    ports:
-      - '6379:6379'
-    networks:
-      - cdp-tenant
-
   mongodb:
     image: mongo:7.0.28
     networks:
@@ -63,6 +56,7 @@ services:
       - cdp-tenant
     volumes:
       - ./src:/home/node/src
+      - .env:/home/node/.env
       - ./package.json:/home/node/package.json
 
 ################################################################################
