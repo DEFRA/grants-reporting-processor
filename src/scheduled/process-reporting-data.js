@@ -1,8 +1,12 @@
 import cron from 'node-cron'
+import { rm, readdir, readFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { join } from 'node:path'
 import { config } from '../config.js'
-import { initialiseClient, listAllFiles } from '@defra/grants-config-utils/s3-interactions'
+import { listAllFiles } from '@defra/grants-config-utils/s3-interactions'
 import { createS3Client } from '@defra/grants-config-utils/s3-client'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { processRawEvents } from '../services/reporting-data-service.js'
 
 export const startProcessReportingDataJob = (server) => {
   const schedule = config.get('jobs.processReportingData.schedule')
@@ -14,52 +18,69 @@ export const startProcessReportingDataJob = (server) => {
 }
 
 export const processReportingDataJob = async (server) => {
+  let tempDir
+
   try {
     server.logger.info('Running processReportingData job..')
 
-    // Get files from raw bucket
-    initialiseClient({
-      region: config.get('aws.region'),
-      endpoint: config.get('aws.endpointUrl'),
-      forcePathStyle: config.get('aws.s3.forcePathStyle'),
-      bucketNameOverride: config.get('aws.s3.rawBucketName')
-    })
-
     const files = await listAllFiles(server.logger)
-    server.logger.info(
-      `Reporting events files found:
-      ${files.map((f) => '• ' + f).join('\n')}\n`
-    )
+    server.logger.info(`Reporting events files found: ${files.length}`)
 
-    // Process into CSV files
-    const exampleFiles = [
-      { name: 'example1.csv', content: 'A,B,C' },
-      { name: 'example2.csv', content: 'E,F,G' }
-    ]
+    if (files.length === 0) {
+      server.logger.info('No files to process')
+      return
+    }
+
+    // Process events and generate CSV files
+    tempDir = await processRawEvents(files, server.logger)
+
+    const dirFiles = await readdir(tempDir)
+    if (dirFiles.length === 0) {
+      server.logger.info('No files generated')
+      return
+    }
 
     const dstFolder = `${config.get('cdpEnvironment')}/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}`
 
-    //Upload files to processed S3 bucket
+    // Upload files to processed S3 bucket and SharePoint
     const outboundClient = createS3Client({
       region: config.get('aws.region'),
       endpoint: config.get('aws.endpointUrl'),
       forcePathStyle: config.get('aws.s3.forcePathStyle')
     })
 
-    for (const file of exampleFiles) {
-      const params = {
-        Bucket: config.get('aws.s3.outputBucketName'),
-        Key: `${dstFolder}/${file.name}`,
-        Body: file.content
-      }
-      await outboundClient.send(new PutObjectCommand(params))
-    }
+    // Ensure SharePoint directory exists
+    await server.sharepoint.createDirectory(dstFolder)
 
-    //Upload those files via sharepoint
-    await server.sharepoint.createDirectoryAndUploadFiles(dstFolder, exampleFiles)
+    for (const fileName of dirFiles) {
+      const filePath = join(tempDir, fileName)
+
+      // Upload to S3 using stream
+      const s3Params = {
+        Bucket: config.get('aws.s3.outputBucketName'),
+        Key: `${dstFolder}/${fileName}`,
+        Body: createReadStream(filePath)
+      }
+      await outboundClient.send(new PutObjectCommand(s3Params))
+      server.logger.info({ key: s3Params.Key }, 'Uploaded file to processed S3 bucket')
+
+      // Upload to SharePoint (reads file into memory individually)
+      const content = await readFile(filePath)
+      await server.sharepoint.uploadFile(dstFolder, fileName, content)
+      server.logger.info({ fileName }, 'Uploaded file to SharePoint')
+    }
 
     server.logger.info('Process reporting data job completed successfully')
   } catch (error) {
     server.logger.error(error, 'Error running processReportingData job')
+  } finally {
+    if (tempDir) {
+      try {
+        await rm(tempDir, { recursive: true, force: true })
+        server.logger.info({ tempDir }, 'Cleaned up temporary directory')
+      } catch (rmError) {
+        server.logger.error(rmError, 'Failed to clean up temporary directory')
+      }
+    }
   }
 }
