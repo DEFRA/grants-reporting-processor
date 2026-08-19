@@ -97,6 +97,49 @@ export const config = convict({
       }
     }
   },
+  aws: {
+    endpointUrl: {
+      doc: 'AWS Endpoint URL used for LocalStack',
+      format: String,
+      nullable: true,
+      default: null,
+      env: 'AWS_ENDPOINT_URL'
+    },
+    region: {
+      doc: 'AWS Region',
+      format: String,
+      default: 'eu-west-2',
+      env: 'AWS_REGION'
+    },
+    s3: {
+      forcePathStyle: {
+        doc: 'Force path style on S3 bucket',
+        format: Boolean,
+        default: true,
+        env: 'FORCE_PATH_STYLE'
+      },
+      rawBucketName: {
+        doc: 'Raw events S3 bucket name',
+        format: String,
+        default: 'raw-event-bucket',
+        env: 'RAW_EVENT_BUCKET_NAME'
+      },
+      outputBucketName: {
+        doc: 'Processed events (output) S3 bucket name',
+        format: String,
+        default: 'processed-event-bucket',
+        env: 'PROCESSED_EVENT_BUCKET_NAME'
+      }
+    },
+    sqs: {
+      featuresQueueUrl: {
+        doc: 'URL of the SQS queue to receive new features updates from',
+        format: String,
+        default: '#',
+        env: 'FEATURES_QUEUE_URL'
+      }
+    }
+  },
   httpProxy: {
     doc: 'HTTP Proxy URL',
     format: String,
@@ -110,6 +153,71 @@ export const config = convict({
       format: String,
       default: 'x-cdp-request-id',
       env: 'TRACING_HEADER'
+    }
+  },
+  jobs: {
+    processReportingData: {
+      schedule: {
+        doc: 'Cron schedule for the process reporting data job',
+        format: String,
+        default: '0 * * * 1-5',
+        env: 'PROCESS_REPORTING_DATA_SCHEDULE'
+      }
+    }
+  },
+  microsoft: {
+    azure: {
+      tenantId: {
+        doc: 'Azure Tenant ID',
+        format: String,
+        default: '6f504113-6b64-43f2-ade9-242e05780007',
+        nullable: false,
+        env: 'AZURE_TENANT_ID'
+      },
+      clientId: {
+        doc: 'Azure Client ID',
+        format: String,
+        default: '2eb3a9da-aea0-4013-ac30-83df00bda6dd',
+        nullable: false,
+        env: 'AZURE_CLIENT_ID'
+      },
+      federatedTokenFile: {
+        doc: 'Azure Federated Token File Path',
+        format: String,
+        default: null,
+        nullable: true,
+        env: 'AZURE_FEDERATED_TOKEN_FILE'
+      }
+    },
+    sharepoint: {
+      siteId: {
+        doc: 'SharePoint Site ID',
+        format: String,
+        default: null,
+        nullable: true,
+        env: 'SHAREPOINT_SITE_ID'
+      },
+      driveId: {
+        doc: 'SharePoint Drive ID (Target Library)',
+        format: String,
+        default: null,
+        nullable: true,
+        env: 'SHAREPOINT_DRIVE_ID'
+      },
+      sitePath: {
+        doc: 'SharePoint Site Path',
+        format: String,
+        default: null,
+        nullable: true,
+        env: 'SHAREPOINT_SITE_PATH'
+      },
+      driveName: {
+        doc: 'SharePoint Drive Name',
+        format: String,
+        default: null,
+        nullable: true,
+        env: 'SHAREPOINT_DRIVE_NAME'
+      }
     }
   }
 })

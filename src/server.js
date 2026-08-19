@@ -6,6 +6,7 @@ import { config } from '#/config.js'
 import { router } from '#/plugins/router.js'
 import { requestLogger } from '#/plugins/request-logger.js'
 import { mongoDb } from '#/plugins/mongodb.js'
+import { sharepoint } from '#/plugins/sharepoint.js'
 import { failAction } from '#/common/helpers/fail-action.js'
 import { pulse } from '#/plugins/pulse.js'
 import { requestTracing } from '#/plugins/request-tracing.js'
@@ -55,6 +56,7 @@ export async function createServer() {
       plugin: mongoDb,
       options: config.get('mongo')
     },
+    sharepoint,
     router
   ])
 

@@ -1,8 +1,8 @@
-import hapi from '@hapi/hapi'
+import { startProcessReportingDataJob } from '#/scheduled/process-reporting-data.js'
 
+vi.mock('#/scheduled/process-reporting-data.js')
 describe('#startServer', () => {
   let createServerSpy
-  let hapiServerSpy
   let startServerImport
   let createServerImport
 
@@ -11,8 +11,15 @@ describe('#startServer', () => {
     createServerImport = await import('#/server.js')
     startServerImport = await import('./start-server.js')
 
-    createServerSpy = vi.spyOn(createServerImport, 'createServer')
-    hapiServerSpy = vi.spyOn(hapi, 'server')
+    const mockServer = {
+      start: vi.fn().mockResolvedValue(),
+      logger: {
+        info: vi.fn(),
+        child: vi.fn().mockReturnThis()
+      }
+    }
+
+    createServerSpy = vi.spyOn(createServerImport, 'createServer').mockResolvedValue(mockServer)
   })
 
   afterAll(() => {
@@ -24,7 +31,7 @@ describe('#startServer', () => {
       await startServerImport.startServer()
 
       expect(createServerSpy).toHaveBeenCalled()
-      expect(hapiServerSpy).toHaveBeenCalled()
+      expect(startProcessReportingDataJob).toHaveBeenCalled()
     })
   })
 
