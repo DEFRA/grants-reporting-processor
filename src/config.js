@@ -180,13 +180,6 @@ export const config = convict({
         default: '2eb3a9da-aea0-4013-ac30-83df00bda6dd',
         nullable: false,
         env: 'AZURE_CLIENT_ID'
-      },
-      federatedTokenFile: {
-        doc: 'Azure Federated Token File Path',
-        format: String,
-        default: null,
-        nullable: true,
-        env: 'AZURE_FEDERATED_TOKEN_FILE'
       }
     },
     sharepoint: {
@@ -207,15 +200,13 @@ export const config = convict({
       sitePath: {
         doc: 'SharePoint Site Path',
         format: String,
-        default: null,
-        nullable: true,
+        default: 'teams/TEAM131UAT',
         env: 'SHAREPOINT_SITE_PATH'
       },
       driveName: {
         doc: 'SharePoint Drive Name',
         format: String,
-        default: null,
-        nullable: true,
+        default: 'Grants library',
         env: 'SHAREPOINT_DRIVE_NAME'
       }
     }
