@@ -26,10 +26,4 @@ describe('sharepoint plugin', () => {
   it('should decorate server with sharepoint service', () => {
     expect(server.sharepoint).toBeDefined()
   })
-
-  it('should decorate request with sharepoint service', () => {
-    // Hapi request decorations are tested by Hapi itself when register is called
-    // We just verify the decoration exists on server
-    expect(server.sharepoint).toBeDefined()
-  })
 })
