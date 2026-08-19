@@ -13,7 +13,7 @@ export class SharePointService {
       const credential = new ClientAssertionCredential(
         config.get('microsoft.azure.tenantId'),
         config.get('microsoft.azure.clientId'),
-        async () => await authProvider.getCredentials(logger), // logger is optional
+        async () => authProvider.getCredentials(logger), // logger is optional
         {}
       )
 
