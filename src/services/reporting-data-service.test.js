@@ -127,10 +127,7 @@ describe('reporting-data-service', () => {
 
     await processRawEvents(mockS3Client, mockFiles, mockLogger)
 
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      new Error('S3 Error'),
-      'Failed to process individual file - bad.json'
-    )
+    expect(mockLogger.error).toHaveBeenCalledWith(new Error('S3 Error'), 'Failed to process individual file - bad.json')
   })
 
   it('should throw and cleanup on major error', async () => {
