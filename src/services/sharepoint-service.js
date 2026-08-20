@@ -10,6 +10,12 @@ const logger = createLogger()
 export class SharePointService {
   constructor(stsClient) {
     try {
+      createLogger().info(
+        JSON.stringify({
+          tenantId: config.get('microsoft.azure.tenantId'),
+          clientId: config.get('microsoft.azure.clientId')
+        })
+      )
       const credential = new ClientAssertionCredential(
         config.get('microsoft.azure.tenantId'),
         config.get('microsoft.azure.clientId'),
