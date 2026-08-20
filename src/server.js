@@ -11,6 +11,7 @@ import { failAction } from '#/common/helpers/fail-action.js'
 import { pulse } from '#/plugins/pulse.js'
 import { requestTracing } from '#/plugins/request-tracing.js'
 import { metrics } from '@defra/cdp-metrics'
+import { stsClientPlugin } from '@defra/grants-config-utils/sts-client-plugin'
 
 export async function createServer() {
   const server = Hapi.server({
@@ -50,6 +51,7 @@ export async function createServer() {
     requestLogger,
     requestTracing,
     metrics,
+    stsClientPlugin,
     secureContext,
     pulse,
     {
