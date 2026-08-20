@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { config } from '../config.js'
-import { initialiseClient } from '@defra/grants-config-utils/s3-interactions'
 import * as fsPromises from 'node:fs/promises'
 import * as fs from 'node:fs'
 import { pipeline } from 'node:stream/promises'
@@ -43,6 +42,7 @@ vi.mock('csv-stringify', () => ({
 
 describe('reporting-data-service', () => {
   let mockLogger
+  let mockS3Client
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -50,6 +50,10 @@ describe('reporting-data-service', () => {
       info: vi.fn(),
       error: vi.fn(),
       debug: vi.fn()
+    }
+
+    mockS3Client = {
+      send: vi.fn()
     }
 
     config.get.mockImplementation((key) => {
@@ -63,39 +67,35 @@ describe('reporting-data-service', () => {
 
   it('should process events and generate CSV files', async () => {
     const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }]
-    const mockS3Client = {
-      send: vi
-        .fn()
-        .mockResolvedValueOnce({
-          Body: {
-            transformToString: vi.fn().mockResolvedValue(
-              JSON.stringify({
-                id: '123',
-                timestamp: '2024-01-01T00:00:00Z',
-                type: 'metric',
-                name: 'test-metric',
-                value: 100
-              })
-            )
-          }
-        })
-        .mockResolvedValueOnce({
-          Body: {
-            transformToString: vi.fn().mockResolvedValue(
-              JSON.stringify({
-                id: '456',
-                timestamp: '2024-01-01T00:01:00Z',
-                type: 'audit',
-                action: 'login',
-                user: 'admin'
-              })
-            )
-          }
-        })
-    }
-    initialiseClient.mockReturnValue(mockS3Client)
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              id: '123',
+              timestamp: '2024-01-01T00:00:00Z',
+              type: 'metric',
+              name: 'test-metric',
+              value: 100
+            })
+          )
+        }
+      })
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              id: '456',
+              timestamp: '2024-01-01T00:01:00Z',
+              type: 'audit',
+              action: 'login',
+              user: 'admin'
+            })
+          )
+        }
+      })
 
-    const tempDir = await processRawEvents(mockFiles, mockLogger)
+    const tempDir = await processRawEvents(mockS3Client, mockFiles, mockLogger)
 
     expect(tempDir).toBe('/tmp/reporting-data-123')
     expect(fsPromises.mkdtemp).toHaveBeenCalled()
@@ -123,12 +123,9 @@ describe('reporting-data-service', () => {
 
   it('should handle individual file processing errors', async () => {
     const mockFiles = [{ Key: 'bad.json' }]
-    const mockS3Client = {
-      send: vi.fn().mockRejectedValue(new Error('S3 Error'))
-    }
-    initialiseClient.mockReturnValue(mockS3Client)
+    mockS3Client.send.mockRejectedValue(new Error('S3 Error'))
 
-    await processRawEvents(mockFiles, mockLogger)
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
 
     expect(mockLogger.error).toHaveBeenCalledWith(
       expect.objectContaining({ key: 'bad.json', error: 'S3 Error' }),
@@ -140,7 +137,7 @@ describe('reporting-data-service', () => {
     const error = new Error('Major failure')
     fsPromises.mkdtemp.mockRejectedValueOnce(error)
 
-    await expect(processRawEvents([], mockLogger)).rejects.toThrow('Major failure')
+    await expect(processRawEvents(mockS3Client, [], mockLogger)).rejects.toThrow('Major failure')
     expect(mockLogger.error).toHaveBeenCalledWith(error, 'Error generating CSV files')
     // rm not called because tempDir was never set
     expect(fsPromises.rm).not.toHaveBeenCalled()
@@ -150,7 +147,7 @@ describe('reporting-data-service', () => {
     const error = new Error('Pipeline failure')
     vi.mocked(pipeline).mockRejectedValueOnce(error)
 
-    await expect(processRawEvents([{ Key: 'any.json' }], mockLogger)).rejects.toThrow('Pipeline failure')
+    await expect(processRawEvents(mockS3Client, [{ Key: 'any.json' }], mockLogger)).rejects.toThrow('Pipeline failure')
     expect(fsPromises.rm).toHaveBeenCalledWith('/tmp/reporting-data-123', expect.any(Object))
   })
 })
