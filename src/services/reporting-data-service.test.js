@@ -128,8 +128,8 @@ describe('reporting-data-service', () => {
     await processRawEvents(mockS3Client, mockFiles, mockLogger)
 
     expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ key: 'bad.json', error: 'S3 Error' }),
-      'Failed to process individual file'
+      new Error('S3 Error'),
+      'Failed to process individual file - bad.json'
     )
   })
 
