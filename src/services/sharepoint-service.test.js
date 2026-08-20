@@ -107,6 +107,9 @@ describe('SharePointService', () => {
 
   it('should call generateToken in the assertion callback', async () => {
     const mockStsClient = { send: vi.fn() }
+    generateToken.mockResolvedValue(
+      'mock-token.ewogImlzcyI6ICJzb21ldGhpbmciLAogICJzdWIiOiAidGhlLXB1YiIsCiAgImF1ZCI6ICJwZW9wbGUtY2xhcHBpbmciCn0='
+    )
     const sps = new SharePointService(mockStsClient)
 
     const callback = vi.mocked(ClientAssertionCredential).mock.calls[0][2]
