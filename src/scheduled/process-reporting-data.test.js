@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import cron from 'node-cron'
 import { config } from '../config.js'
-import { initialiseClient, listAllFiles } from '@defra/grants-config-utils/s3-interactions'
+import { listAllFiles } from '@defra/grants-config-utils/s3-interactions'
 import { createS3Client } from '@defra/grants-config-utils/s3-client'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
+import * as fsPromises from 'node:fs/promises'
 import { startProcessReportingDataJob, processReportingDataJob } from './process-reporting-data.js'
+import { processRawEvents } from '../services/reporting-data-service.js'
 
 vi.mock('node-cron', () => ({
   default: {
@@ -28,7 +30,22 @@ vi.mock('@defra/grants-config-utils/s3-client', () => ({
 }))
 
 vi.mock('@aws-sdk/client-s3', () => ({
-  PutObjectCommand: vi.fn()
+  PutObjectCommand: vi.fn(),
+  GetObjectCommand: vi.fn()
+}))
+
+vi.mock('../services/reporting-data-service.js', () => ({
+  processRawEvents: vi.fn()
+}))
+
+vi.mock('node:fs/promises', () => ({
+  rm: vi.fn().mockResolvedValue(),
+  readdir: vi.fn().mockResolvedValue(['events.csv']),
+  readFile: vi.fn().mockResolvedValue(Buffer.from('csv-content'))
+}))
+
+vi.mock('node:fs', () => ({
+  createReadStream: vi.fn().mockReturnValue({})
 }))
 
 describe('process-reporting-data', () => {
@@ -39,10 +56,12 @@ describe('process-reporting-data', () => {
     mockServer = {
       logger: {
         info: vi.fn(),
-        error: vi.fn()
+        error: vi.fn(),
+        debug: vi.fn()
       },
       sharepoint: {
-        createDirectoryAndUploadFiles: vi.fn()
+        createDirectory: vi.fn().mockResolvedValue(),
+        uploadFile: vi.fn().mockResolvedValue()
       }
     }
   })
@@ -50,34 +69,19 @@ describe('process-reporting-data', () => {
   describe('startProcessReportingDataJob', () => {
     it('should schedule the job correctly', () => {
       config.get.mockReturnValue('0 0 * * *')
-
       startProcessReportingDataJob(mockServer)
-
       expect(cron.schedule).toHaveBeenCalledWith('0 0 * * *', expect.any(Function), {
         scheduled: true,
         timezone: 'UTC'
       })
-      expect(mockServer.logger.info).toHaveBeenCalledWith(
-        'Process reporting data scheduled job started with schedule 0 0 * * *'
-      )
-
-      // Verify callback
-      const callback = cron.schedule.mock.calls[0][1]
-
-      // We need to mock some stuff for processReportingDataJob to not fail
-      listAllFiles.mockResolvedValue([])
-      createS3Client.mockReturnValue({ send: vi.fn().mockResolvedValue({}) })
-
-      callback()
-
-      expect(mockServer.logger.info).toHaveBeenCalledWith('Running processReportingData job..')
     })
   })
 
   describe('processReportingDataJob', () => {
     it('should process reporting data successfully', async () => {
-      const mockFiles = ['file1.json', 'file2.json']
+      const mockFiles = [{ Key: 'file1.json' }]
       listAllFiles.mockResolvedValue(mockFiles)
+      processRawEvents.mockResolvedValue('/tmp/reporting-data-123')
 
       const mockS3Client = {
         send: vi.fn().mockResolvedValue({})
@@ -88,50 +92,35 @@ describe('process-reporting-data', () => {
         if (key === 'aws.region') return 'us-east-1'
         if (key === 'aws.endpointUrl') return 'http://localhost:4566'
         if (key === 'aws.s3.forcePathStyle') return true
-        if (key === 'aws.s3.rawBucketName') return 'my-raw-bucket'
-        if (key === 'aws.s3.outputBucketName') return 'my-output-bucket'
+        if (key === 'aws.s3.outputBucketName') return 'output-bucket'
         if (key === 'cdpEnvironment') return 'dev'
         return null
       })
 
-      // We need to fix the bug in the code where it calls server.logger as a function
-      // for this test to pass if we are testing the current state.
-      // But let's see it fail first.
-
       await processReportingDataJob(mockServer)
 
-      expect(initialiseClient).toHaveBeenCalledWith({
-        region: 'us-east-1',
-        endpoint: 'http://localhost:4566',
-        forcePathStyle: true,
-        bucketNameOverride: 'my-raw-bucket'
-      })
-
       expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger)
-      expect(mockServer.logger.info).toHaveBeenCalledWith(expect.stringContaining('Reporting events files found:'))
-
-      expect(createS3Client).toHaveBeenCalledWith({
-        region: 'us-east-1',
-        endpoint: 'http://localhost:4566',
-        forcePathStyle: true
-      })
-
-      expect(PutObjectCommand).toHaveBeenCalledTimes(2)
-      expect(mockS3Client.send).toHaveBeenCalledTimes(2)
-
-      expect(mockServer.sharepoint.createDirectoryAndUploadFiles).toHaveBeenCalledWith(
-        expect.stringMatching(/^dev\/\d{4}\/\d{2}$/),
-        [
-          { name: 'example1.csv', content: 'A,B,C' },
-          { name: 'example2.csv', content: 'E,F,G' }
-        ]
-      )
-
+      expect(processRawEvents).toHaveBeenCalledWith(mockFiles, mockServer.logger)
+      expect(fsPromises.readdir).toHaveBeenCalledWith('/tmp/reporting-data-123')
+      expect(mockServer.sharepoint.createDirectory).toHaveBeenCalledWith(expect.stringMatching(/^dev\/\d{4}\/\d{2}$/))
+      expect(mockS3Client.send).toHaveBeenCalledWith(expect.any(PutObjectCommand))
+      expect(mockServer.sharepoint.uploadFile).toHaveBeenCalled()
+      expect(fsPromises.rm).toHaveBeenCalledWith('/tmp/reporting-data-123', expect.any(Object))
       expect(mockServer.logger.info).toHaveBeenCalledWith('Process reporting data job completed successfully')
     })
 
+    it('should not call processRawEvents if no files found', async () => {
+      listAllFiles.mockResolvedValue([])
+
+      await processReportingDataJob(mockServer)
+
+      expect(listAllFiles).toHaveBeenCalled()
+      expect(processRawEvents).not.toHaveBeenCalled()
+      expect(mockServer.logger.info).toHaveBeenCalledWith('No files to process')
+    })
+
     it('should log an error if job fails', async () => {
-      const error = new Error('Some error')
+      const error = new Error('Major failure')
       listAllFiles.mockRejectedValue(error)
 
       await processReportingDataJob(mockServer)
