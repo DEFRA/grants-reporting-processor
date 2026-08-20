@@ -32,7 +32,6 @@ export const processReportingDataJob = async (server) => {
     })
 
     const files = await listAllFiles(server.logger)
-    server.logger.info(`Reporting events files found: ${files.length}`)
 
     if (files.length === 0) {
       server.logger.info('No files to process')

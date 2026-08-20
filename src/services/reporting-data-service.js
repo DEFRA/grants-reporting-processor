@@ -102,11 +102,11 @@ export const processRawEvents = async (s3Client, files, logger) => {
           '354'
         ])
       } catch (fileError) {
-        logger.error({ key: file.Key, error: fileError.message }, 'Failed to process individual file')
+        logger.error(fileError, `Failed to process individual file - ${file.Key}`)
       }
     }
 
-    // Finalize all CSV stringifiers
+    // Finalise all CSV stringifiers
     for (const target of Object.values(targets)) {
       target.stringifier.end()
     }
