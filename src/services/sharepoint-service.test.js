@@ -28,11 +28,17 @@ vi.mock('@azure/identity', () => ({
   ClientAssertionCredential: vi.fn()
 }))
 
+vi.mock('@aws-sdk/client-sts', () => ({
+  STSClient: vi.fn()
+}))
+
+vi.mock('@defra/grants-config-utils/grants-config-broker-token', () => ({
+  generateToken: vi.fn()
+}))
+
 vi.mock('@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js', () => ({
   TokenCredentialAuthenticationProvider: vi.fn().mockImplementation(function () {
-    return {
-      getCredentials: vi.fn()
-    }
+    return {}
   })
 }))
 
@@ -58,6 +64,7 @@ import {
   _mockCreateUploadSession
 } from '@microsoft/microsoft-graph-client'
 import { ClientAssertionCredential } from '@azure/identity'
+import { generateToken } from '@defra/grants-config-utils/grants-config-broker-token'
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js'
 import { config } from '#/config.js'
 
@@ -89,26 +96,25 @@ describe('SharePointService', () => {
   it('should initialize with ClientAssertionCredential', () => {
     const service = new SharePointService()
     expect(service).toBeInstanceOf(SharePointService)
-    expect(ClientAssertionCredential).toHaveBeenCalledWith('mock-tenant-id', 'mock-client-id', expect.any(Function), {})
+    expect(ClientAssertionCredential).toHaveBeenCalledWith('mock-tenant-id', 'mock-client-id', expect.any(Function))
     expect(TokenCredentialAuthenticationProvider).toHaveBeenCalledWith(expect.any(ClientAssertionCredential), {
       scopes: ['https://graph.microsoft.com/.default']
     })
     expect(Client.initWithMiddleware).toHaveBeenCalledWith({
-      authProvider: expect.objectContaining({
-        getCredentials: expect.any(Function)
-      })
+      authProvider: expect.any(Object)
     })
   })
 
-  it('should call getCredentials in the assertion callback', async () => {
-    const service = new SharePointService()
-    expect(service).toBeInstanceOf(SharePointService)
+  it('should call generateToken in the assertion callback', async () => {
+    const mockStsClient = { send: vi.fn() }
+    const sps = new SharePointService(mockStsClient)
+
     const callback = vi.mocked(ClientAssertionCredential).mock.calls[0][2]
-    const authProviderInstance = vi.mocked(TokenCredentialAuthenticationProvider).mock.results[0].value
 
     await callback()
 
-    expect(authProviderInstance.getCredentials).toHaveBeenCalled()
+    expect(sps).not.toBeUndefined()
+    expect(generateToken).toHaveBeenCalled()
   })
 
   it('should log and throw error if initialization fails', () => {

@@ -1,6 +1,6 @@
 import { Client, OneDriveLargeFileUploadTask, FileUpload } from '@microsoft/microsoft-graph-client'
-
 import { ClientAssertionCredential } from '@azure/identity'
+import { generateToken } from '@defra/grants-config-utils/grants-config-broker-token'
 import { config } from '#/config.js'
 import { createLogger } from '#/common/helpers/logging/logger.js'
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js'
@@ -8,13 +8,12 @@ import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-grap
 const logger = createLogger()
 
 export class SharePointService {
-  constructor() {
+  constructor(stsClient) {
     try {
       const credential = new ClientAssertionCredential(
         config.get('microsoft.azure.tenantId'),
         config.get('microsoft.azure.clientId'),
-        async () => authProvider.getCredentials(logger), // logger is optional
-        {}
+        async () => generateToken(stsClient)
       )
 
       const authProvider = new TokenCredentialAuthenticationProvider(credential, {
