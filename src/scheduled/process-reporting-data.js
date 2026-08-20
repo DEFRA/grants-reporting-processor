@@ -3,7 +3,7 @@ import { rm, readdir, readFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
 import { config } from '../config.js'
-import { listAllFiles } from '@defra/grants-config-utils/s3-interactions'
+import { initialiseClient, listAllFiles } from '@defra/grants-config-utils/s3-interactions'
 import { createS3Client } from '@defra/grants-config-utils/s3-client'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { processRawEvents } from '../services/reporting-data-service.js'
@@ -23,6 +23,14 @@ export const processReportingDataJob = async (server) => {
   try {
     server.logger.info('Running processReportingData job..')
 
+    // Initialise S3 client for raw bucket. Needs doing now as listAllFiles command below will utilise this client automatically
+    const s3Client = initialiseClient({
+      region: config.get('aws.region'),
+      endpoint: config.get('aws.endpointUrl'),
+      forcePathStyle: config.get('aws.s3.forcePathStyle'),
+      bucketNameOverride: config.get('aws.s3.rawBucketName')
+    })
+
     const files = await listAllFiles(server.logger)
     server.logger.info(`Reporting events files found: ${files.length}`)
 
@@ -32,7 +40,7 @@ export const processReportingDataJob = async (server) => {
     }
 
     // Process events and generate CSV files
-    tempDir = await processRawEvents(files, server.logger)
+    tempDir = await processRawEvents(s3Client, files, server.logger)
 
     const dirFiles = await readdir(tempDir)
     if (dirFiles.length === 0) {

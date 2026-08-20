@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import cron from 'node-cron'
 import { config } from '../config.js'
-import { listAllFiles } from '@defra/grants-config-utils/s3-interactions'
+import { initialiseClient, listAllFiles } from '@defra/grants-config-utils/s3-interactions'
 import { createS3Client } from '@defra/grants-config-utils/s3-client'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import * as fsPromises from 'node:fs/promises'
@@ -86,12 +86,14 @@ describe('process-reporting-data', () => {
       const mockS3Client = {
         send: vi.fn().mockResolvedValue({})
       }
+      initialiseClient.mockReturnValue(mockS3Client)
       createS3Client.mockReturnValue(mockS3Client)
 
       config.get.mockImplementation((key) => {
         if (key === 'aws.region') return 'us-east-1'
         if (key === 'aws.endpointUrl') return 'http://localhost:4566'
         if (key === 'aws.s3.forcePathStyle') return true
+        if (key === 'aws.s3.rawBucketName') return 'raw-bucket'
         if (key === 'aws.s3.outputBucketName') return 'output-bucket'
         if (key === 'cdpEnvironment') return 'dev'
         return null
@@ -99,8 +101,14 @@ describe('process-reporting-data', () => {
 
       await processReportingDataJob(mockServer)
 
+      expect(initialiseClient).toHaveBeenCalledWith({
+        region: 'us-east-1',
+        endpoint: 'http://localhost:4566',
+        forcePathStyle: true,
+        bucketNameOverride: 'raw-bucket'
+      })
       expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger)
-      expect(processRawEvents).toHaveBeenCalledWith(mockFiles, mockServer.logger)
+      expect(processRawEvents).toHaveBeenCalledWith(mockS3Client, mockFiles, mockServer.logger)
       expect(fsPromises.readdir).toHaveBeenCalledWith('/tmp/reporting-data-123')
       expect(mockServer.sharepoint.createDirectory).toHaveBeenCalledWith(expect.stringMatching(/^dev\/\d{4}\/\d{2}$/))
       expect(mockS3Client.send).toHaveBeenCalledWith(expect.any(PutObjectCommand))

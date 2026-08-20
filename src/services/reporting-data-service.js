@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { pipeline } from 'node:stream/promises'
 import { stringify } from 'csv-stringify'
 import { config } from '../config.js'
-import { initialiseClient } from '@defra/grants-config-utils/s3-interactions'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 
 const CSV_FILES = {
@@ -43,11 +42,12 @@ const CSV_FILES = {
 
 /**
  * Processes raw events from S3 and generates CSV files in a temporary directory.
+ * @param s3Client
  * @param {Array<Object>} files List of files from S3 to process.
  * @param {Object} logger Logger instance.
  * @returns {Promise<string>} Path to the temporary directory containing the generated CSV files.
  */
-export const processRawEvents = async (files, logger) => {
+export const processRawEvents = async (s3Client, files, logger) => {
   let tempDir
   const activeStreams = []
 
@@ -67,14 +67,6 @@ export const processRawEvents = async (files, logger) => {
       targets[fileName] = { stringifier, streamPipeline }
       activeStreams.push(streamPipeline)
     }
-
-    // Initialise S3 client for raw bucket
-    const s3Client = initialiseClient({
-      region: config.get('aws.region'),
-      endpoint: config.get('aws.endpointUrl'),
-      forcePathStyle: config.get('aws.s3.forcePathStyle'),
-      bucketNameOverride: config.get('aws.s3.rawBucketName')
-    })
 
     for (const file of files) {
       try {
