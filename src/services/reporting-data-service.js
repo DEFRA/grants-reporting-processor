@@ -8,7 +8,7 @@ import { config } from '../config.js'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 
 const CSV_FILES = {
-  'agreements.csv': [
+  agreements: [
     'SBI',
     'Agreement_ID',
     'Agreement_Type',
@@ -17,16 +17,8 @@ const CSV_FILES = {
     'Agreement_end_date',
     'Agreement_value'
   ],
-  'claims.csv': [
-    'SBI',
-    'Agreement_ID',
-    'Claim_ID',
-    'claim_status',
-    'Claim_receipt_dt',
-    'Claim_paid_date',
-    'claim_value'
-  ],
-  'optiondata.csv': [
+  claims: ['SBI', 'Agreement_ID', 'Claim_ID', 'claim_status', 'Claim_receipt_dt', 'Claim_paid_date', 'claim_value'],
+  optiondata: [
     'Agreement_ID',
     'Parcel_reference',
     'Parcel_Size_under_agreement',
@@ -37,7 +29,16 @@ const CSV_FILES = {
     'Option_qty',
     'Option_value'
   ],
-  'transactional.csv': ['Reference', 'Status', 'Event_dt', 'User_id']
+  transactional: ['Reference', 'Status', 'Event_dt', 'User_id']
+}
+
+const padStart = (number) => {
+  return number.toString().padStart(2, '0')
+}
+
+const createCsvFilename = (prefix) => {
+  const now = new Date()
+  return `${prefix} ${now.getFullYear()}-${padStart(now.getMonth() + 1)}-${padStart(now.getDate())} ${padStart(now.getHours())}${padStart(now.getMinutes())}${padStart(now.getSeconds())}.csv`
 }
 
 /**
@@ -58,13 +59,14 @@ export const processRawEvents = async (s3Client, files, logger) => {
 
     // Initialise CSV stringifiers and write streams
     const targets = {}
-    for (const [fileName, columns] of Object.entries(CSV_FILES)) {
+    for (const [filePrefix, columns] of Object.entries(CSV_FILES)) {
       const stringifier = stringify({ header: true, columns })
+      const fileName = createCsvFilename(filePrefix)
       const filePath = join(tempDir, fileName)
       const writeStream = createWriteStream(filePath)
 
       const streamPipeline = pipeline(stringifier, writeStream)
-      targets[fileName] = { stringifier, streamPipeline }
+      targets[filePrefix] = { stringifier, streamPipeline }
       activeStreams.push(streamPipeline)
     }
 
@@ -92,7 +94,7 @@ export const processRawEvents = async (s3Client, files, logger) => {
         // }
 
         // Example to add to agreements csv
-        targets['agreements.csv'].stringifier.write([
+        targets['agreements'].stringifier.write([
           '123456789',
           'AGREE_123',
           'Woodland',
