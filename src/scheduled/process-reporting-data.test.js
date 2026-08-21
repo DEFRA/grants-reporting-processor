@@ -133,7 +133,7 @@ describe('process-reporting-data', () => {
 
       await processReportingDataJob(mockServer)
 
-      expect(mockServer.logger.error).toHaveBeenCalledWith(error, 'Error running processReportingData job')
+      expect(mockServer.logger.error).toHaveBeenCalledWith(error, 'Error running processReportingData job - {}')
     })
   })
 })
