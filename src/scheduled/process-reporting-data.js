@@ -79,7 +79,7 @@ export const processReportingDataJob = async (server) => {
 
     server.logger.info('Process reporting data job completed successfully')
   } catch (error) {
-    server.logger.error(error, 'Error running processReportingData job')
+    server.logger.error(error, `Error running processReportingData job - ${JSON.stringify(error)}`)
   } finally {
     if (tempDir) {
       try {

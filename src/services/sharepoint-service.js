@@ -142,7 +142,7 @@ export class SharePointService {
     } catch (error) {
       logger.error(
         error,
-        `Failed to resolve SharePoint IDs for ${JSON.stringify({ sitePath: this.sitePath, driveName: this.driveName })}`
+        `Failed to resolve SharePoint IDs for ${JSON.stringify({ sitePath: this.sitePath, drive: this.driveName })}`
       )
       throw error
     }
