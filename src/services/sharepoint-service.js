@@ -10,32 +10,10 @@ const logger = createLogger()
 export class SharePointService {
   constructor(stsClient) {
     try {
-      createLogger().info(
-        JSON.stringify({
-          tenantId: config.get('microsoft.azure.tenantId'),
-          clientId: config.get('microsoft.azure.clientId')
-        })
-      )
       const credential = new ClientAssertionCredential(
         config.get('microsoft.azure.tenantId'),
         config.get('microsoft.azure.clientId'),
-        async () => {
-          const token = await generateToken(stsClient)
-
-          const [, payload] = token.split('.')
-
-          const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
-
-          createLogger().info(
-            JSON.stringify({
-              issuer: claims.iss,
-              subject: claims.sub,
-              audience: claims.aud
-            })
-          )
-
-          return token
-        }
+        async () => generateToken(stsClient)
       )
 
       const authProvider = new TokenCredentialAuthenticationProvider(credential, {
@@ -65,14 +43,14 @@ export class SharePointService {
     await this._ensureConfig()
 
     try {
-      logger.info({ folderName }, 'Creating directory in SharePoint')
+      logger.info(`Creating directory in SharePoint for ${folderName}`)
       return this.client.api(`/sites/${this.siteId}/drives/${this.driveId}/root/children`).post({
         name: folderName,
         folder: {},
         '@microsoft.graph.conflictBehavior': 'replace'
       })
     } catch (error) {
-      logger.error({ folderName, error }, 'Failed to create directory in SharePoint')
+      logger.error(error, `Failed to create directory (${folderName}) in SharePoint`)
       throw error
     }
   }
@@ -89,7 +67,7 @@ export class SharePointService {
     await this._ensureConfig()
 
     try {
-      logger.info({ folderName, fileName }, 'Uploading file to SharePoint using upload session')
+      logger.info(`Uploading file to SharePoint using upload session to ${folderName}/${fileName}`)
 
       const url = `/sites/${this.siteId}/drives/${this.driveId}/root:/${folderName}/${fileName}:/createUploadSession`
       const payloadOptions = {
@@ -107,7 +85,7 @@ export class SharePointService {
 
       return uploadResult.responseBody
     } catch (error) {
-      logger.error({ folderName, fileName, error }, 'Failed to upload file to SharePoint')
+      logger.error(error, `Failed to upload file ${folderName}/${fileName} to SharePoint`)
       throw error
     }
   }
@@ -144,13 +122,15 @@ export class SharePointService {
 
     try {
       if (!this.siteId && this.sitePath) {
-        logger.info({ sitePath: this.sitePath }, 'Resolving SharePoint Site ID')
+        logger.info(`Resolving SharePoint Site ID for path ${this.sitePath}`)
         const site = await this.client.api(`/sites/${this.sitePath}`).get()
         this.siteId = site.id
       }
 
       if (this.siteId && !this.driveId && this.driveName) {
-        logger.info({ siteId: this.siteId, driveName: this.driveName }, 'Resolving SharePoint Drive ID')
+        logger.info(
+          `Resolving SharePoint Drive ID - ${JSON.stringify({ siteId: this.siteId, driveName: this.driveName })}`
+        )
         const drives = await this.client.api(`/sites/${this.siteId}/drives`).get()
         const drive = drives.value.find((d) => d.name === this.driveName)
         if (drive) {
@@ -160,7 +140,10 @@ export class SharePointService {
         }
       }
     } catch (error) {
-      logger.error({ error, sitePath: this.sitePath, driveName: this.driveName }, 'Failed to resolve SharePoint IDs')
+      logger.error(
+        error,
+        `Failed to resolve SharePoint IDs for ${JSON.stringify({ sitePath: this.sitePath, driveName: this.driveName })}`
+      )
       throw error
     }
   }
