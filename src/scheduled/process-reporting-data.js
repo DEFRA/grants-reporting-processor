@@ -47,7 +47,7 @@ export const processReportingDataJob = async (server) => {
       return
     }
 
-    const dstFolder = `${config.get('cdpEnvironment')}/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}`
+    const dstFolder = `Reporting/${config.get('cdpEnvironment')}/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}`
 
     // Upload files to processed S3 bucket and SharePoint
     const outboundClient = createS3Client({

@@ -36,21 +36,41 @@ export class SharePointService {
 
   /**
    * Creates a directory in the target SharePoint library.
-   * @param {string} folderName The name of the folder to create.
+   * @param {string} folderPath The path & name of the folder to create.
    * @returns {Promise<Object>} The created folder object.
    */
-  async createDirectory(folderName) {
+  async createDirectory(folderPath) {
     await this._ensureConfig()
 
     try {
-      logger.info(`Creating directory in SharePoint for ${folderName}`)
-      return this.client.api(`/sites/${this.siteId}/drives/${this.driveId}/root/children`).post({
-        name: folderName,
-        folder: {},
-        '@microsoft.graph.conflictBehavior': 'replace'
-      })
+      logger.info(`Creating directory in SharePoint for ${folderPath}`)
+
+      const parts = folderPath.split('/').filter(Boolean)
+      let parentId = 'root'
+
+      for (const folderName of parts) {
+        const children = await this.client
+          .api(`/sites/${this.siteId}/drives/${this.driveId}/items/${parentId}/children`)
+          .get()
+
+        let folder = children.value.find((item) => item.name === folderName && item.folder)
+
+        if (!folder) {
+          folder = await this.client
+            .api(`/sites/${this.siteId}/drives/${this.driveId}/items/${parentId}/children`)
+            .post({
+              name: folderName,
+              folder: {},
+              '@microsoft.graph.conflictBehavior': 'fail'
+            })
+        }
+
+        parentId = folder.id
+      }
+
+      return parentId
     } catch (error) {
-      logger.error(error, `Failed to create directory (${folderName}) in SharePoint`)
+      logger.error(error, `Failed to create directory (${folderPath}) in SharePoint`)
       throw error
     }
   }

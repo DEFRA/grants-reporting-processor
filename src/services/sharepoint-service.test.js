@@ -129,19 +129,20 @@ describe('SharePointService', () => {
   })
 
   it('should create a directory', async () => {
+    mockClient.get.mockResolvedValue({ value: [] })
     mockClient.post.mockResolvedValue({ id: 'folder-id' })
 
     const service = new SharePointService()
     const result = await service.createDirectory('test-folder')
 
     expect(Client.initWithMiddleware).toHaveBeenCalled()
-    expect(mockClient.api).toHaveBeenCalledWith(`/sites/${mockSiteId}/drives/${mockDriveId}/root/children`)
+    expect(mockClient.api).toHaveBeenCalledWith(`/sites/${mockSiteId}/drives/${mockDriveId}/items/root/children`)
     expect(mockClient.post).toHaveBeenCalledWith({
       name: 'test-folder',
       folder: {},
-      '@microsoft.graph.conflictBehavior': 'replace'
+      '@microsoft.graph.conflictBehavior': 'fail'
     })
-    expect(result).toEqual({ id: 'folder-id' })
+    expect(result).toBe('folder-id')
   })
 
   it('should upload a file using upload session', async () => {
@@ -189,6 +190,7 @@ describe('SharePointService', () => {
   })
 
   it('should create a directory and upload multiple files', async () => {
+    mockClient.get.mockResolvedValue({ value: [] })
     mockClient.post.mockResolvedValue({ id: 'folder-id' })
     _mockCreateUploadSession.mockResolvedValue({ url: 'mock-url' })
     _mockUpload.mockResolvedValue({ responseBody: { id: 'file-id' } })
@@ -228,6 +230,7 @@ describe('SharePointService', () => {
           { name: 'MyDrive', id: 'resolved-drive-id' }
         ]
       }) // drive lookup
+      .mockResolvedValueOnce({ value: [] }) // folder check
 
     mockClient.post.mockResolvedValue({ id: 'folder-id' })
 
@@ -236,10 +239,10 @@ describe('SharePointService', () => {
 
     expect(mockClient.api).toHaveBeenCalledWith('/sites/tenant.sharepoint.com:/sites/mysite')
     expect(mockClient.api).toHaveBeenCalledWith('/sites/resolved-site-id/drives')
-    expect(mockClient.api).toHaveBeenCalledWith('/sites/resolved-site-id/drives/resolved-drive-id/root/children')
+    expect(mockClient.api).toHaveBeenCalledWith('/sites/resolved-site-id/drives/resolved-drive-id/items/root/children')
     expect(service.siteId).toBe('resolved-site-id')
     expect(service.driveId).toBe('resolved-drive-id')
-    expect(result).toEqual({ id: 'folder-id' })
+    expect(result).toBe('folder-id')
   })
 
   it('should throw error if drive name not found', async () => {
@@ -273,9 +276,37 @@ describe('SharePointService', () => {
     await expect(service.createDirectory('test')).rejects.toThrow('Resolution Failed')
   })
 
+  it('should create nested directories', async () => {
+    mockClient.get
+      .mockResolvedValueOnce({ value: [] }) // no folder1
+      .mockResolvedValueOnce({ value: [] }) // no folder2
+    mockClient.post.mockResolvedValueOnce({ id: 'folder1-id' }).mockResolvedValueOnce({ id: 'folder2-id' })
+
+    const service = new SharePointService()
+    const result = await service.createDirectory('folder1/folder2')
+
+    expect(mockClient.api).toHaveBeenCalledWith(`/sites/${mockSiteId}/drives/${mockDriveId}/items/root/children`)
+    expect(mockClient.api).toHaveBeenCalledWith(`/sites/${mockSiteId}/drives/${mockDriveId}/items/folder1-id/children`)
+    expect(mockClient.post).toHaveBeenCalledTimes(2)
+    expect(result).toBe('folder2-id')
+  })
+
+  it('should skip creating directory if it already exists', async () => {
+    mockClient.get.mockResolvedValue({
+      value: [{ name: 'existing-folder', folder: {}, id: 'existing-id' }]
+    })
+
+    const service = new SharePointService()
+    const result = await service.createDirectory('existing-folder')
+
+    expect(mockClient.get).toHaveBeenCalled()
+    expect(mockClient.post).not.toHaveBeenCalled()
+    expect(result).toBe('existing-id')
+  })
+
   it('should catch and rethrow error during directory creation', async () => {
     const error = new Error('Graph Error')
-    mockClient.post.mockRejectedValue(error)
+    mockClient.get.mockRejectedValue(error)
 
     const service = new SharePointService()
     await expect(service.createDirectory('test')).rejects.toThrow('Graph Error')
