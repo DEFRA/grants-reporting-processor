@@ -110,7 +110,9 @@ describe('process-reporting-data', () => {
       expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger)
       expect(processRawEvents).toHaveBeenCalledWith(mockS3Client, mockFiles, mockServer.logger)
       expect(fsPromises.readdir).toHaveBeenCalledWith('/tmp/reporting-data-123')
-      expect(mockServer.sharepoint.createDirectory).toHaveBeenCalledWith(expect.stringMatching(/^dev\/\d{4}\/\d{2}$/))
+      expect(mockServer.sharepoint.createDirectory).toHaveBeenCalledWith(
+        expect.stringMatching(/^Reporting\/dev\/\d{4}\/\d{2}$/)
+      )
       expect(mockS3Client.send).toHaveBeenCalledWith(expect.any(PutObjectCommand))
       expect(mockServer.sharepoint.uploadFile).toHaveBeenCalled()
       expect(fsPromises.rm).toHaveBeenCalledWith('/tmp/reporting-data-123', expect.any(Object))

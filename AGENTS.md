@@ -32,3 +32,7 @@ Run the narrowest relevant Vitest file first, then `npm test`, `npm run lint`, a
 ## Security & Configuration Tips
 
 Do not commit secrets or real environment values. Local broker files under `compose/` are development fixtures; keep production credentials out of them.
+
+## Executing npm based actions
+
+Do not attempt to execute 'npx' commands directly. Instead, use the provided npm scripts or the Node.js runtime to run your actions.
