@@ -69,7 +69,9 @@ export const processReportingDataJob = async (server) => {
         Body: createReadStream(filePath)
       }
       await outboundClient.send(new PutObjectCommand(s3Params))
-      server.logger.info({ key: s3Params.Key }, 'Uploaded file to processed S3 bucket')
+      server.logger.info(
+        `Uploaded file to processed S3 bucket (${config.get('aws.s3.outputBucketName')}) - ${s3Params.Key}`
+      )
 
       // Upload to SharePoint (reads file into memory individually)
       const content = await readFile(filePath)
