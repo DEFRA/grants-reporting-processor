@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import cron from 'node-cron'
 import { config } from '../config.js'
-import { initialiseClient } from '@defra/grants-config-utils/s3-interactions'
+import { initialiseClient, listAllFiles } from '@defra/grants-config-utils/s3-interactions'
 import { createS3Client } from '@defra/grants-config-utils/s3-client'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import * as fsPromises from 'node:fs/promises'
@@ -79,6 +79,8 @@ describe('process-reporting-data', () => {
 
   describe('processReportingDataJob', () => {
     it('should process reporting data successfully', async () => {
+      const mockFiles = [{ Key: 'file1.json' }]
+      listAllFiles.mockResolvedValue(mockFiles)
       processRawEvents.mockResolvedValue('/tmp/reporting-data-123')
 
       const mockS3Client = {
@@ -105,7 +107,8 @@ describe('process-reporting-data', () => {
         forcePathStyle: true,
         bucketNameOverride: 'raw-bucket'
       })
-      expect(processRawEvents).toHaveBeenCalledWith(mockS3Client, [], mockServer.logger)
+      expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger)
+      expect(processRawEvents).toHaveBeenCalledWith(mockS3Client, mockFiles, mockServer.logger)
       expect(fsPromises.readdir).toHaveBeenCalledWith('/tmp/reporting-data-123')
       expect(mockServer.sharepoint.createDirectory).toHaveBeenCalledWith(
         expect.stringMatching(/^Reporting\/dev\/\d{4}\/\d{2}$/)
@@ -116,9 +119,19 @@ describe('process-reporting-data', () => {
       expect(mockServer.logger.info).toHaveBeenCalledWith('Process reporting data job completed successfully')
     })
 
+    it('should not call processRawEvents if no files found', async () => {
+      listAllFiles.mockResolvedValue([])
+
+      await processReportingDataJob(mockServer)
+
+      expect(listAllFiles).toHaveBeenCalled()
+      expect(processRawEvents).not.toHaveBeenCalled()
+      expect(mockServer.logger.info).toHaveBeenCalledWith('No files to process')
+    })
+
     it('should log an error if job fails', async () => {
       const error = new Error('Major failure')
-      processRawEvents.mockRejectedValue(error)
+      listAllFiles.mockRejectedValue(error)
 
       await processReportingDataJob(mockServer)
 
