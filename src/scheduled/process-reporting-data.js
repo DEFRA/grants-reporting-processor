@@ -33,10 +33,10 @@ export const processReportingDataJob = async (server) => {
 
     const files = await listAllFiles(server.logger)
 
-    if (files.length === 0) {
-      server.logger.info('No files to process')
-      return
-    }
+    // if (files.length === 0) {
+    //   server.logger.info('No files to process')
+    //   return
+    // }
 
     // Process events and generate CSV files
     tempDir = await processRawEvents(s3Client, files, server.logger)
