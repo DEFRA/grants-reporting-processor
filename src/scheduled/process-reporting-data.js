@@ -3,7 +3,7 @@ import { rm, readdir, readFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
 import { config } from '../config.js'
-import { initialiseClient, listAllFiles } from '@defra/grants-config-utils/s3-interactions'
+import { initialiseClient } from '@defra/grants-config-utils/s3-interactions'
 import { createS3Client } from '@defra/grants-config-utils/s3-client'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { processRawEvents } from '../services/reporting-data-service.js'
@@ -31,7 +31,8 @@ export const processReportingDataJob = async (server) => {
       bucketNameOverride: config.get('aws.s3.rawBucketName')
     })
 
-    const files = await listAllFiles(server.logger)
+    // const files = await listAllFiles(server.logger)
+    const files = []
 
     // if (files.length === 0) {
     //   server.logger.info('No files to process')
