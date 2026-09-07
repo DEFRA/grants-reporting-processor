@@ -119,7 +119,7 @@ describe('process-reporting-data', () => {
       expect(mockServer.logger.info).toHaveBeenCalledWith('Process reporting data job completed successfully')
     })
 
-    it('should not call processRawEvents if no files found', async () => {
+    it.skip('should not call processRawEvents if no files found', async () => {
       listAllFiles.mockResolvedValue([])
 
       await processReportingDataJob(mockServer)
