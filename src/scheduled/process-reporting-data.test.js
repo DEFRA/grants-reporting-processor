@@ -94,6 +94,7 @@ describe('process-reporting-data', () => {
         if (key === 'aws.endpointUrl') return 'http://localhost:4566'
         if (key === 'aws.s3.forcePathStyle') return true
         if (key === 'aws.s3.rawBucketName') return 'raw-bucket'
+        if (key === 'aws.s3.grantsEventsPrefix') return 'grants'
         if (key === 'aws.s3.outputBucketName') return 'output-bucket'
         if (key === 'cdpEnvironment') return 'dev'
         return null
@@ -107,7 +108,7 @@ describe('process-reporting-data', () => {
         forcePathStyle: true,
         bucketNameOverride: 'raw-bucket'
       })
-      expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger)
+      expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger, 'grants')
       expect(processRawEvents).toHaveBeenCalledWith(mockS3Client, mockFiles, mockServer.logger)
       expect(fsPromises.readdir).toHaveBeenCalledWith('/tmp/reporting-data-123')
       expect(mockServer.sharepoint.createDirectory).toHaveBeenCalledWith(
@@ -117,6 +118,48 @@ describe('process-reporting-data', () => {
       expect(mockServer.sharepoint.uploadFile).toHaveBeenCalled()
       expect(fsPromises.rm).toHaveBeenCalledWith('/tmp/reporting-data-123', expect.any(Object))
       expect(mockServer.logger.info).toHaveBeenCalledWith('Process reporting data job completed successfully')
+    })
+
+    it('should sort files in ascending order according to the file key so that AGREEMENT_CREATED events are processed first', async () => {
+      const mockFiles = [
+        { Key: 'grants/AGREEMENT_STATUS_CHANGED/1700000000002.json' },
+        { Key: 'grants/AGREEMENT_CREATED/1700000000001.json' },
+        { Key: 'grants/AGREEMENT_STATUS_CHANGED/1700000000001.json' },
+        { Key: 'grants/AGREEMENT_CREATED/1700000000000.json' }
+      ]
+      listAllFiles.mockResolvedValue(mockFiles)
+      processRawEvents.mockResolvedValue('/tmp/reporting-data-123')
+
+      const mockS3Client = {
+        send: vi.fn().mockResolvedValue({})
+      }
+      initialiseClient.mockReturnValue(mockS3Client)
+      createS3Client.mockReturnValue(mockS3Client)
+
+      config.get.mockImplementation((key) => {
+        if (key === 'aws.region') return 'us-east-1'
+        if (key === 'aws.endpointUrl') return 'http://localhost:4566'
+        if (key === 'aws.s3.forcePathStyle') return true
+        if (key === 'aws.s3.rawBucketName') return 'raw-bucket'
+        if (key === 'aws.s3.grantsEventsPrefix') return 'custom-prefix'
+        if (key === 'aws.s3.outputBucketName') return 'output-bucket'
+        if (key === 'cdpEnvironment') return 'dev'
+        return null
+      })
+
+      await processReportingDataJob(mockServer)
+
+      expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger, 'custom-prefix')
+      expect(processRawEvents).toHaveBeenCalledWith(
+        mockS3Client,
+        [
+          { Key: 'grants/AGREEMENT_CREATED/1700000000000.json' },
+          { Key: 'grants/AGREEMENT_CREATED/1700000000001.json' },
+          { Key: 'grants/AGREEMENT_STATUS_CHANGED/1700000000001.json' },
+          { Key: 'grants/AGREEMENT_STATUS_CHANGED/1700000000002.json' }
+        ],
+        mockServer.logger
+      )
     })
 
     it('should not call processRawEvents if no files found', async () => {
