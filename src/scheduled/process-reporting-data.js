@@ -31,12 +31,15 @@ export const processReportingDataJob = async (server) => {
       bucketNameOverride: config.get('aws.s3.rawBucketName')
     })
 
-    const files = await listAllFiles(server.logger)
+    const prefix = config.get('aws.s3.grantsEventsPrefix')
+    const files = await listAllFiles(server.logger, prefix)
 
     if (files.length === 0) {
       server.logger.info('No files to process')
       return
     }
+
+    files.sort((a, b) => a.Key.localeCompare(b.Key))
 
     // Process events and generate CSV files
     tempDir = await processRawEvents(s3Client, files, server.logger)

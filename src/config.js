@@ -124,6 +124,12 @@ export const config = convict({
         default: 'raw-event-bucket',
         env: 'RAW_EVENT_BUCKET_NAME'
       },
+      grantsEventsPrefix: {
+        doc: 'Raw events S3 bucket prefix for grants events',
+        format: String,
+        default: 'grants',
+        env: 'GRANTS_EVENTS_PREFIX'
+      },
       outputBucketName: {
         doc: 'Processed events (output) S3 bucket name',
         format: String,
