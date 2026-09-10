@@ -33,6 +33,10 @@ const CSV_FILES = {
   transactional: ['Reference', 'Status', 'Event_dt', 'User_id']
 }
 
+const AGREEMENT_STARTDATE_INDEX = 4
+const AGREEMENT_ENDDATE_INDEX = 5
+const AGREEMENT_VALUE_INDEX = 6
+
 const padStart = (number) => {
   return number.toString().padStart(2, '0')
 }
@@ -106,15 +110,20 @@ export const processRawEvents = async (s3Client, files, logger) => {
     return tempDir
   } catch (error) {
     logger.error(error, 'Error generating CSV files')
-    if (tempDir) {
-      try {
-        await rm(tempDir, { recursive: true, force: true })
-        logger.info({ tempDir }, 'Cleaned up temporary directory after error')
-      } catch (rmError) {
-        logger.error(rmError, 'Failed to clean up temporary directory after error')
-      }
-    }
+    await cleanupTempDir(tempDir, logger)
+
     throw error
+  }
+}
+
+const cleanupTempDir = async (tempDir, logger) => {
+  if (tempDir) {
+    try {
+      await rm(tempDir, { recursive: true, force: true })
+      logger.info({ tempDir }, 'Cleaned up temporary directory after error')
+    } catch (rmError) {
+      logger.error(rmError, 'Failed to clean up temporary directory after error')
+    }
   }
 }
 
@@ -177,13 +186,13 @@ const writeAgreementStatusEvent = (targets, eventData, partialRows) => {
   ) {
     const agreementRowData = partialRows.get(eventData.agreementId)
     if (eventData.agreementStartDate) {
-      agreementRowData[4] = eventData.agreementStartDate
+      agreementRowData[AGREEMENT_STARTDATE_INDEX] = eventData.agreementStartDate
     }
     if (eventData.agreementEndDate) {
-      agreementRowData[5] = eventData.agreementEndDate
+      agreementRowData[AGREEMENT_ENDDATE_INDEX] = eventData.agreementEndDate
     }
     if (eventData.agreementValue) {
-      agreementRowData[6] = eventData.agreementValue
+      agreementRowData[AGREEMENT_VALUE_INDEX] = eventData.agreementValue
     }
 
     partialRows.set(eventData.agreementId, agreementRowData)
