@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises'
 import { stringify } from 'csv-stringify'
 import { config } from '../config.js'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { AGREEMENT_CREATED, AGREEMENT_STATUS_CHANGED } from '@defra/grants-reporting-publisher/constants'
 
 const CSV_FILES = {
   agreements: [
@@ -32,6 +33,10 @@ const CSV_FILES = {
   transactional: ['Reference', 'Status', 'Event_dt', 'User_id']
 }
 
+const AGREEMENT_STARTDATE_INDEX = 4
+const AGREEMENT_ENDDATE_INDEX = 5
+const AGREEMENT_VALUE_INDEX = 6
+
 const padStart = (number) => {
   return number.toString().padStart(2, '0')
 }
@@ -51,6 +56,7 @@ const createCsvFilename = (prefix) => {
 export const processRawEvents = async (s3Client, files, logger) => {
   let tempDir
   const activeStreams = []
+  const partialRows = new Map()
 
   try {
     // Create temp directory for CSV files
@@ -82,30 +88,14 @@ export const processRawEvents = async (s3Client, files, logger) => {
         const event = JSON.parse(content)
         logger.debug({ event }, 'Event parsed')
 
-        // Map event to rows (one or more) for different files
-        // if (event.type === 'agreement') {
-        //   targets['agreements.csv'].stringifier.write([event.id, event.timestamp, event.name, event.value])
-        // } else if (event.type === 'claim') {
-        //   targets['claims.csv'].stringifier.write([event.id, event.timestamp, event.action, event.user])
-        // } else if (event.type === 'option') {
-        //   targets['optiondata.csv'].stringifier.write([event.id, event.timestamp, event.message, event.stack])
-        // } else if (event.type === 'event') {
-        //   targets['transactional.csv'].stringifier.write([event.id, event.timestamp, event.level, event.message])
-        // }
-
-        // Example to add to agreements csv
-        targets['agreements'].stringifier.write([
-          '123456789',
-          'AGREE_123',
-          'Woodland',
-          'ON_HOLD',
-          '2026-01-11T10:00:00.000Z',
-          '2027-01-11T10:00:00.000Z',
-          '354'
-        ])
+        writeOrHoldBackRow(event.eventData, targets, partialRows)
       } catch (fileError) {
         logger.error(fileError, `Failed to process individual file - ${file.Key}`)
       }
+    }
+
+    for (const [, agreementRowData] of partialRows.entries()) {
+      targets['agreements'].stringifier.write(agreementRowData)
     }
 
     // Finalise all CSV stringifiers
@@ -120,14 +110,95 @@ export const processRawEvents = async (s3Client, files, logger) => {
     return tempDir
   } catch (error) {
     logger.error(error, 'Error generating CSV files')
-    if (tempDir) {
-      try {
-        await rm(tempDir, { recursive: true, force: true })
-        logger.info({ tempDir }, 'Cleaned up temporary directory after error')
-      } catch (rmError) {
-        logger.error(rmError, 'Failed to clean up temporary directory after error')
-      }
-    }
+    await cleanupTempDir(tempDir, logger)
+
     throw error
+  }
+}
+
+const cleanupTempDir = async (tempDir, logger) => {
+  if (tempDir) {
+    try {
+      await rm(tempDir, { recursive: true, force: true })
+      logger.info({ tempDir }, 'Cleaned up temporary directory after error')
+    } catch (rmError) {
+      logger.error(rmError, 'Failed to clean up temporary directory after error')
+    }
+  }
+}
+
+const writeOrHoldBackRow = (eventData, targets, partialRows) => {
+  if (eventData.eventType === AGREEMENT_CREATED) {
+    writeAgreementCreatedEvent(targets, eventData, partialRows)
+  } else if (eventData.eventType === AGREEMENT_STATUS_CHANGED) {
+    writeAgreementStatusEvent(targets, eventData, partialRows)
+  } else {
+    throw new Error(`Unknown event type: ${eventData.eventType}`)
+  }
+}
+
+const writeAgreementCreatedEvent = (targets, eventData, partialRows) => {
+  const agreementRowData = [
+    eventData.sbi,
+    eventData.agreementId,
+    eventData.agreementType,
+    eventData.agreementStatus,
+    valueOrEmptyString(eventData.agreementStartDate),
+    valueOrEmptyString(eventData.agreementEndDate),
+    valueOrEmptyString(eventData.agreementValue)
+  ]
+  // Write to agreements CSV, or hold back for later if any fields are missing
+  if (agreementRowData.includes('')) {
+    partialRows.set(eventData.agreementId, agreementRowData)
+  } else {
+    targets['agreements'].stringifier.write(agreementRowData)
+  }
+
+  if (eventData.options.length) {
+    for (const option of eventData.options) {
+      targets['optiondata'].stringifier.write([
+        eventData.agreementId,
+        option.parcelReference,
+        valueOrEmptyString(option.parcelSizeUnderAgreement),
+        option.optionCode,
+        valueOrEmptyString(option.optionYear),
+        valueOrEmptyString(option.optionStartDate),
+        valueOrEmptyString(option.optionEndDate),
+        valueOrEmptyString(option.optionQuantity),
+        valueOrEmptyString(option.optionValue)
+      ])
+    }
+  }
+}
+
+const valueOrEmptyString = (value) => {
+  return value ?? ''
+}
+
+const writeAgreementStatusEvent = (targets, eventData, partialRows) => {
+  // Write to transactional CSV
+  targets['transactional'].stringifier.write([
+    eventData.agreementId,
+    eventData.agreementStatus,
+    eventData.statusDate,
+    eventData.userId ?? ''
+  ])
+
+  if (
+    partialRows.has(eventData.agreementId) &&
+    (eventData.agreementStartDate || eventData.agreementEndDate || eventData.agreementValue)
+  ) {
+    const agreementRowData = partialRows.get(eventData.agreementId)
+    if (eventData.agreementStartDate) {
+      agreementRowData[AGREEMENT_STARTDATE_INDEX] = eventData.agreementStartDate
+    }
+    if (eventData.agreementEndDate) {
+      agreementRowData[AGREEMENT_ENDDATE_INDEX] = eventData.agreementEndDate
+    }
+    if (eventData.agreementValue) {
+      agreementRowData[AGREEMENT_VALUE_INDEX] = eventData.agreementValue
+    }
+
+    partialRows.set(eventData.agreementId, agreementRowData)
   }
 }
