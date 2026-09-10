@@ -143,9 +143,9 @@ const writeAgreementCreatedEvent = (targets, eventData, partialRows) => {
     eventData.agreementId,
     eventData.agreementType,
     eventData.agreementStatus,
-    eventData.agreementStartDate ?? '',
-    eventData.agreementEndDate ?? '',
-    eventData.agreementValue ?? ''
+    valueOrEmptyString(eventData.agreementStartDate),
+    valueOrEmptyString(eventData.agreementEndDate),
+    valueOrEmptyString(eventData.agreementValue)
   ]
   // Write to agreements CSV, or hold back for later if any fields are missing
   if (agreementRowData.includes('')) {
@@ -159,16 +159,20 @@ const writeAgreementCreatedEvent = (targets, eventData, partialRows) => {
       targets['optiondata'].stringifier.write([
         eventData.agreementId,
         option.parcelReference,
-        option.parcelSizeUnderAgreement ?? '',
+        valueOrEmptyString(option.parcelSizeUnderAgreement),
         option.optionCode,
-        option.optionYear ?? '',
-        option.optionStartDate ?? '',
-        option.optionEndDate ?? '',
-        option.optionQuantity ?? '',
-        option.optionValue ?? ''
+        valueOrEmptyString(option.optionYear),
+        valueOrEmptyString(option.optionStartDate),
+        valueOrEmptyString(option.optionEndDate),
+        valueOrEmptyString(option.optionQuantity),
+        valueOrEmptyString(option.optionValue)
       ])
     }
   }
+}
+
+const valueOrEmptyString = (value) => {
+  return value ?? ''
 }
 
 const writeAgreementStatusEvent = (targets, eventData, partialRows) => {
