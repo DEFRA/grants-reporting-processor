@@ -37,6 +37,9 @@ const AGREEMENT_STARTDATE_INDEX = 4
 const AGREEMENT_ENDDATE_INDEX = 5
 const AGREEMENT_VALUE_INDEX = 6
 
+const OPTION_PARCEL_REF_INDEX = 1
+const OPTION_PARCEL_SIZE_INDEX = 2
+
 const padStart = (number) => {
   return number.toString().padStart(2, '0')
 }
@@ -174,7 +177,7 @@ const writeAgreementCreatedEvent = (targets, eventData, partialAgreementRows, pa
       valueOrEmptyString(option.optionValue)
     ])
 
-    if (optionsRows.some((row) => row.includes(''))) {
+    if (optionsRows.some((row) => !isOptionsRowComplete(row))) {
       partialOptionsRows.set(eventData.agreementId, optionsRows)
     } else {
       for (const rowData of optionsRows) {
@@ -182,6 +185,15 @@ const writeAgreementCreatedEvent = (targets, eventData, partialAgreementRows, pa
       }
     }
   }
+}
+
+const isOptionsRowComplete = (row) => {
+  return !row.some((value, index) => {
+    if (index === OPTION_PARCEL_REF_INDEX || index === OPTION_PARCEL_SIZE_INDEX) {
+      return false
+    }
+    return value === ''
+  })
 }
 
 const valueOrEmptyString = (value) => {
@@ -228,7 +240,7 @@ const writeAgreementStatusEvent = (targets, eventData, partialAgreementRows, par
       valueOrEmptyString(option.optionValue)
     ])
 
-    if (optionsRows.some((row) => row.includes(''))) {
+    if (optionsRows.some((row) => !isOptionsRowComplete(row))) {
       partialOptionsRows.set(eventData.agreementId, optionsRows)
     } else {
       for (const rowData of optionsRows) {
