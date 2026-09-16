@@ -899,4 +899,106 @@ describe('reporting-data-service', () => {
     expect(calls[0][0][0]).toBe('AGREE_OTHER')
     expect(calls[1][0][0]).toBe('AGREE_MISSING_VALUE')
   })
+
+  it('should only flush options rows for a single agreementId once, even if complete data arrives multiple times', async () => {
+    const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }, { Key: 'event3.json' }]
+
+    // 1. AGREEMENT_CREATED with missing option data
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_DUPE_TEST',
+                agreementType: 'Woodland',
+                agreementStatus: 'DRAFT',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2027-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: null,
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: null
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+      // 2. AGREEMENT_STATUS_CHANGED with complete option data
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_STATUS_CHANGED,
+                agreementId: 'AGREE_DUPE_TEST',
+                agreementStatus: 'LIVE',
+                statusDate: '2026-02-01T00:00:00.000Z',
+                userId: 'user1',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '500'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+      // 3. Subsequent AGREEMENT_STATUS_CHANGED with same complete option data
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_STATUS_CHANGED,
+                agreementId: 'AGREE_DUPE_TEST',
+                agreementStatus: 'LIVE',
+                statusDate: '2026-03-01T00:00:00.000Z',
+                userId: 'user1',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '500'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const optionDataStringifier = vi
+      .mocked(stringify)
+      .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_DUPE_TEST')).value
+
+    // CRITICAL: Should only be called ONCE for the agreement, despite multiple complete events
+    expect(optionDataStringifier.write).toHaveBeenCalledTimes(1)
+  })
 })

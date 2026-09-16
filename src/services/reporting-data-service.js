@@ -61,6 +61,7 @@ export const processRawEvents = async (s3Client, files, logger) => {
   const activeStreams = []
   const partialAgreementRows = new Map()
   const partialOptionsRows = new Map()
+  const flushedOptionsAgreements = new Set()
 
   try {
     // Create temp directory for CSV files
@@ -92,7 +93,7 @@ export const processRawEvents = async (s3Client, files, logger) => {
         const event = JSON.parse(content)
         logger.debug({ event }, 'Event parsed')
 
-        writeOrHoldBackRow(event.eventData, targets, partialAgreementRows, partialOptionsRows)
+        writeOrHoldBackRow(event.eventData, targets, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements)
       } catch (fileError) {
         logger.error(fileError, `Failed to process individual file - ${file.Key}`)
       }
@@ -137,17 +138,23 @@ const cleanupTempDir = async (tempDir, logger) => {
   }
 }
 
-const writeOrHoldBackRow = (eventData, targets, partialAgreementRows, partialOptionsRows) => {
+const writeOrHoldBackRow = (eventData, targets, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements) => {
   if (eventData.eventType === AGREEMENT_CREATED) {
-    writeAgreementCreatedEvent(targets, eventData, partialAgreementRows, partialOptionsRows)
+    writeAgreementCreatedEvent(targets, eventData, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements)
   } else if (eventData.eventType === AGREEMENT_STATUS_CHANGED) {
-    writeAgreementStatusEvent(targets, eventData, partialAgreementRows, partialOptionsRows)
+    writeAgreementStatusEvent(targets, eventData, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements)
   } else {
     throw new Error(`Unknown event type: ${eventData.eventType}`)
   }
 }
 
-const writeAgreementCreatedEvent = (targets, eventData, partialAgreementRows, partialOptionsRows) => {
+const writeAgreementCreatedEvent = (
+  targets,
+  eventData,
+  partialAgreementRows,
+  partialOptionsRows,
+  flushedOptionsAgreements
+) => {
   const agreementRowData = [
     eventData.sbi,
     eventData.agreementId,
@@ -162,69 +169,15 @@ const writeAgreementCreatedEvent = (targets, eventData, partialAgreementRows, pa
     partialAgreementRows.set(eventData.agreementId, agreementRowData)
   } else {
     targets['agreements'].stringifier.write(agreementRowData)
+    partialAgreementRows.delete(eventData.agreementId)
   }
 
-  if (eventData.options?.length) {
-    const optionsRows = eventData.options.map((option) => [
-      eventData.agreementId,
-      option.parcelReference,
-      valueOrEmptyString(option.parcelSizeUnderAgreement),
-      option.optionCode,
-      valueOrEmptyString(option.optionYear),
-      valueOrEmptyString(option.optionStartDate),
-      valueOrEmptyString(option.optionEndDate),
-      valueOrEmptyString(option.optionQuantity),
-      valueOrEmptyString(option.optionValue)
-    ])
-
-    if (optionsRows.some((row) => !isOptionsRowComplete(row))) {
-      partialOptionsRows.set(eventData.agreementId, optionsRows)
-    } else {
-      for (const rowData of optionsRows) {
-        targets['optiondata'].stringifier.write(rowData)
-      }
-    }
-  }
+  writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements)
 }
 
-const isOptionsRowComplete = (row) => {
-  return !row.some((value, index) => {
-    if (index === OPTION_PARCEL_REF_INDEX || index === OPTION_PARCEL_SIZE_INDEX) {
-      return false
-    }
-    return value === ''
-  })
-}
-
-const valueOrEmptyString = (value) => {
-  return value ?? ''
-}
-
-const writeAgreementStatusEvent = (targets, eventData, partialAgreementRows, partialOptionsRows) => {
-  // Write to transactional CSV
-  targets['transactional'].stringifier.write([
-    eventData.agreementId,
-    eventData.agreementStatus,
-    eventData.statusDate,
-    eventData.userId ?? ''
-  ])
-
-  if (
-    partialAgreementRows.has(eventData.agreementId) &&
-    (eventData.agreementStartDate || eventData.agreementEndDate || eventData.agreementValue)
-  ) {
-    const agreementRowData = partialAgreementRows.get(eventData.agreementId)
-    if (eventData.agreementStartDate) {
-      agreementRowData[AGREEMENT_STARTDATE_INDEX] = eventData.agreementStartDate
-    }
-    if (eventData.agreementEndDate) {
-      agreementRowData[AGREEMENT_ENDDATE_INDEX] = eventData.agreementEndDate
-    }
-    if (eventData.agreementValue) {
-      agreementRowData[AGREEMENT_VALUE_INDEX] = eventData.agreementValue
-    }
-
-    partialAgreementRows.set(eventData.agreementId, agreementRowData)
+const writeOrHoldBackOptionsRows = (eventData, targets, partialOptionsRows, flushedOptionsAgreements) => {
+  if (flushedOptionsAgreements.has(eventData.agreementId)) {
+    return
   }
 
   if (eventData.options?.length) {
@@ -247,6 +200,64 @@ const writeAgreementStatusEvent = (targets, eventData, partialAgreementRows, par
         targets['optiondata'].stringifier.write(rowData)
       }
       partialOptionsRows.delete(eventData.agreementId)
+      flushedOptionsAgreements.add(eventData.agreementId)
     }
   }
+}
+
+const isOptionsRowComplete = (row) => {
+  return !row.some((value, index) => {
+    if (index === OPTION_PARCEL_REF_INDEX || index === OPTION_PARCEL_SIZE_INDEX) {
+      return false
+    }
+    return value === ''
+  })
+}
+
+const valueOrEmptyString = (value) => {
+  return value ?? ''
+}
+
+const writeAgreementStatusEvent = (
+  targets,
+  eventData,
+  partialAgreementRows,
+  partialOptionsRows,
+  flushedOptionsAgreements
+) => {
+  // Write to transactional CSV
+  targets['transactional'].stringifier.write([
+    eventData.agreementId,
+    eventData.agreementStatus,
+    eventData.statusDate,
+    eventData.userId ?? ''
+  ])
+
+  if (partialAgreementRows.has(eventData.agreementId)) {
+    const agreementRowData = partialAgreementRows.get(eventData.agreementId)
+    let updated = false
+    if (eventData.agreementStartDate) {
+      agreementRowData[AGREEMENT_STARTDATE_INDEX] = eventData.agreementStartDate
+      updated = true
+    }
+    if (eventData.agreementEndDate) {
+      agreementRowData[AGREEMENT_ENDDATE_INDEX] = eventData.agreementEndDate
+      updated = true
+    }
+    if (eventData.agreementValue) {
+      agreementRowData[AGREEMENT_VALUE_INDEX] = eventData.agreementValue
+      updated = true
+    }
+
+    if (updated) {
+      if (!agreementRowData.includes('')) {
+        targets['agreements'].stringifier.write(agreementRowData)
+        partialAgreementRows.delete(eventData.agreementId)
+      } else {
+        partialAgreementRows.set(eventData.agreementId, agreementRowData)
+      }
+    }
+  }
+
+  writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements)
 }
