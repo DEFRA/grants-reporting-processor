@@ -35,10 +35,10 @@ vi.mock('node:stream/promises', () => ({
 }))
 
 vi.mock('csv-stringify', () => ({
-  stringify: vi.fn().mockReturnValue({
+  stringify: vi.fn().mockImplementation(() => ({
     write: vi.fn(),
     end: vi.fn()
-  })
+  }))
 }))
 
 describe('reporting-data-service', () => {
@@ -561,5 +561,444 @@ describe('reporting-data-service', () => {
 
     await expect(processRawEvents(mockS3Client, [{ Key: 'any.json' }], mockLogger)).rejects.toThrow('Pipeline failure')
     expect(mockLogger.error).toHaveBeenCalledWith(rmError, 'Failed to clean up temporary directory after error')
+  })
+
+  it('should buffer partial options rows and flush them only when complete or at the end', async () => {
+    const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }]
+
+    // 1. AGREEMENT_CREATED with missing option data
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_OPT_PARTIAL',
+                agreementType: 'Woodland',
+                agreementStatus: 'DRAFT',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2027-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: null, // missing
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: null // missing
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+      // 2. AGREEMENT_STATUS_CHANGED with complete option data
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_STATUS_CHANGED,
+                agreementId: 'AGREE_OPT_PARTIAL',
+                agreementStatus: 'LIVE',
+                statusDate: '2026-02-01T00:00:00.000Z',
+                userId: 'user1',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10', // now present
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '500' // now present
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const optionDataStringifier = vi
+      .mocked(stringify)
+      .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_OPT_PARTIAL')).value
+
+    // Should only be called ONCE with the complete data
+    expect(optionDataStringifier.write).toHaveBeenCalledTimes(1)
+    expect(optionDataStringifier.write).toHaveBeenCalledWith([
+      'AGREE_OPT_PARTIAL',
+      'PARCEL_1',
+      '10',
+      'OPT_1',
+      '2026',
+      '2026-01-11T10:00:00.000Z',
+      '2027-01-11T10:00:00.000Z',
+      '5',
+      '500'
+    ])
+  })
+
+  it('should flush partial options rows at the end if they remain incomplete', async () => {
+    const mockFiles = [{ Key: 'event1.json' }]
+
+    mockS3Client.send.mockResolvedValueOnce({
+      Body: {
+        transformToString: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            eventData: {
+              eventType: AGREEMENT_CREATED,
+              sbi: '123456789',
+              agreementId: 'AGREE_OPT_STILL_PARTIAL',
+              agreementType: 'Woodland',
+              agreementStatus: 'DRAFT',
+              agreementStartDate: '2026-01-01T00:00:00.000Z',
+              agreementEndDate: '2027-01-01T00:00:00.000Z',
+              agreementValue: '1000',
+              options: [
+                {
+                  parcelReference: 'PARCEL_1',
+                  parcelSizeUnderAgreement: null, // missing
+                  optionCode: 'OPT_1',
+                  optionYear: '2026',
+                  optionStartDate: '2026-01-11T10:00:00.000Z',
+                  optionEndDate: '2027-01-11T10:00:00.000Z',
+                  optionQuantity: '5',
+                  optionValue: null // missing
+                }
+              ]
+            }
+          })
+        )
+      }
+    })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const optionDataStringifier = vi
+      .mocked(stringify)
+      .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_OPT_STILL_PARTIAL')).value
+
+    expect(optionDataStringifier.write).toHaveBeenCalledWith([
+      'AGREE_OPT_STILL_PARTIAL',
+      'PARCEL_1',
+      '',
+      'OPT_1',
+      '2026',
+      '2026-01-11T10:00:00.000Z',
+      '2027-01-11T10:00:00.000Z',
+      '5',
+      ''
+    ])
+  })
+
+  it('should continue to hold options rows if they remain incomplete after a status change', async () => {
+    const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }]
+
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                agreementId: 'AGREE_OPT_STAY_PARTIAL',
+                options: [{ parcelReference: 'P1', parcelSizeUnderAgreement: null }]
+              }
+            })
+          )
+        }
+      })
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_STATUS_CHANGED,
+                agreementId: 'AGREE_OPT_STAY_PARTIAL',
+                agreementStatus: 'LIVE',
+                statusDate: '2026-02-01T00:00:00.000Z',
+                options: [{ parcelReference: 'P1', parcelSizeUnderAgreement: null }]
+              }
+            })
+          )
+        }
+      })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const optionDataStringifier = vi
+      .mocked(stringify)
+      .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_OPT_STAY_PARTIAL')).value
+
+    // Should be called ONCE at the end
+    expect(optionDataStringifier.write).toHaveBeenCalledTimes(1)
+  })
+
+  it('should NOT hold back options rows if only parcelReference or parcelSizeUnderAgreement are blank', async () => {
+    const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }]
+
+    // 1. AGREEMENT_CREATED with blank parcel fields
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_BLANK_PARCEL',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2027-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: '',
+                    parcelSizeUnderAgreement: '',
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '500'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+      // 2. Another AGREEMENT_CREATED that is definitely complete
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '987654321',
+                agreementId: 'AGREE_OTHER',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2027-01-01T00:00:00.000Z',
+                agreementValue: '2000',
+                options: [
+                  {
+                    parcelReference: 'P2',
+                    parcelSizeUnderAgreement: '20',
+                    optionCode: 'OPT_2',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '10',
+                    optionValue: '1000'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const optionDataStringifier = vi
+      .mocked(stringify)
+      .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_OTHER')).value
+
+    const calls = optionDataStringifier.write.mock.calls
+    expect(calls[0][0][0]).toBe('AGREE_BLANK_PARCEL')
+    expect(calls[1][0][0]).toBe('AGREE_OTHER')
+  })
+
+  it('should STILL hold back options rows if other fields are blank', async () => {
+    const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }]
+
+    // 1. AGREEMENT_CREATED with blank optionValue
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_MISSING_VALUE',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2027-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'P1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '' // missing
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+      // 2. Another AGREEMENT_CREATED that is definitely complete
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '987654321',
+                agreementId: 'AGREE_OTHER',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2027-01-01T00:00:00.000Z',
+                agreementValue: '2000',
+                options: [
+                  {
+                    parcelReference: 'P2',
+                    parcelSizeUnderAgreement: '20',
+                    optionCode: 'OPT_2',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '10',
+                    optionValue: '1000'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const optionDataStringifier = vi
+      .mocked(stringify)
+      .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_OTHER')).value
+
+    const calls = optionDataStringifier.write.mock.calls
+    expect(calls[0][0][0]).toBe('AGREE_OTHER')
+    expect(calls[1][0][0]).toBe('AGREE_MISSING_VALUE')
+  })
+
+  it('should only flush options rows for a single agreementId once, even if complete data arrives multiple times', async () => {
+    const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }, { Key: 'event3.json' }]
+
+    // 1. AGREEMENT_CREATED with missing option data
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_DUPE_TEST',
+                agreementType: 'Woodland',
+                agreementStatus: 'DRAFT',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2027-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: null,
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: null
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+      // 2. AGREEMENT_STATUS_CHANGED with complete option data
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_STATUS_CHANGED,
+                agreementId: 'AGREE_DUPE_TEST',
+                agreementStatus: 'LIVE',
+                statusDate: '2026-02-01T00:00:00.000Z',
+                userId: 'user1',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '500'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+      // 3. Subsequent AGREEMENT_STATUS_CHANGED with same complete option data
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_STATUS_CHANGED,
+                agreementId: 'AGREE_DUPE_TEST',
+                agreementStatus: 'LIVE',
+                statusDate: '2026-03-01T00:00:00.000Z',
+                userId: 'user1',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-11T10:00:00.000Z',
+                    optionEndDate: '2027-01-11T10:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '500'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const optionDataStringifier = vi
+      .mocked(stringify)
+      .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_DUPE_TEST')).value
+
+    // CRITICAL: Should only be called ONCE for the agreement, despite multiple complete events
+    expect(optionDataStringifier.write).toHaveBeenCalledTimes(1)
   })
 })
