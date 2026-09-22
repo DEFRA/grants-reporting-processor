@@ -59,6 +59,9 @@ describe('process-reporting-data', () => {
         error: vi.fn(),
         debug: vi.fn()
       },
+      metrics: {
+        counter: vi.fn()
+      },
       sharepoint: {
         createDirectory: vi.fn().mockResolvedValue(),
         uploadFile: vi.fn().mockResolvedValue()
@@ -109,7 +112,7 @@ describe('process-reporting-data', () => {
         bucketNameOverride: 'raw-bucket'
       })
       expect(listAllFiles).toHaveBeenCalledWith(mockServer.logger, 'grants')
-      expect(processRawEvents).toHaveBeenCalledWith(mockS3Client, mockFiles, mockServer.logger)
+      expect(processRawEvents).toHaveBeenCalledWith(mockS3Client, mockFiles, mockServer.logger, mockServer.metrics)
       expect(fsPromises.readdir).toHaveBeenCalledWith('/tmp/reporting-data-123')
       expect(mockServer.sharepoint.createDirectory).toHaveBeenCalledWith(
         expect.stringMatching(/^Reporting\/dev\/\d{4}\/\d{2}$/)
@@ -158,7 +161,8 @@ describe('process-reporting-data', () => {
           { Key: 'grants/AGREEMENT_STATUS_CHANGED/1700000000001.json' },
           { Key: 'grants/AGREEMENT_STATUS_CHANGED/1700000000002.json' }
         ],
-        mockServer.logger
+        mockServer.logger,
+        mockServer.metrics
       )
     })
 

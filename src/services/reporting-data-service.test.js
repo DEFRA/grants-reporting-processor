@@ -44,6 +44,7 @@ vi.mock('csv-stringify', () => ({
 describe('reporting-data-service', () => {
   let mockLogger
   let mockS3Client
+  let mockMetrics
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -51,6 +52,10 @@ describe('reporting-data-service', () => {
       info: vi.fn(),
       error: vi.fn(),
       debug: vi.fn()
+    }
+
+    mockMetrics = {
+      counter: vi.fn()
     }
 
     mockS3Client = {
@@ -1000,5 +1005,392 @@ describe('reporting-data-service', () => {
 
     // CRITICAL: Should only be called ONCE for the agreement, despite multiple complete events
     expect(optionDataStringifier.write).toHaveBeenCalledTimes(1)
+  })
+
+  describe('autopopulating option year and metrics recording', () => {
+    it('should autopopulate optionYear and record metric when optionYear is missing and start and end dates are present in AGREEMENT_CREATED event', async () => {
+      const mockFiles = [{ Key: 'event1.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_AUTO_YEAR',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2028-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionStartDate: '2026-01-01T00:00:00.000Z',
+                    optionEndDate: '2029-01-01T00:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '100'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const optionDataStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_AUTO_YEAR')).value
+
+      expect(optionDataStringifier.write).toHaveBeenCalledWith([
+        'AGREE_AUTO_YEAR',
+        'PARCEL_1',
+        '10',
+        'OPT_1',
+        3,
+        '2026-01-01T00:00:00.000Z',
+        '2029-01-01T00:00:00.000Z',
+        '5',
+        '100'
+      ])
+      expect(mockMetrics.counter).toHaveBeenCalledWith('auto-populated-option-year')
+      expect(mockMetrics.counter).toHaveBeenCalledTimes(1)
+    })
+
+    it('should autopopulate optionYear and record metric when optionYear is missing and start and end dates are present in AGREEMENT_STATUS_CHANGED event', async () => {
+      const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }]
+      mockS3Client.send
+        .mockResolvedValueOnce({
+          Body: {
+            transformToString: vi.fn().mockResolvedValue(
+              JSON.stringify({
+                eventData: {
+                  eventType: AGREEMENT_CREATED,
+                  sbi: '123456789',
+                  agreementId: 'AGREE_STATUS_AUTO_YEAR',
+                  agreementType: 'Woodland',
+                  agreementStatus: 'DRAFT',
+                  agreementStartDate: '2026-01-01T00:00:00.000Z',
+                  agreementEndDate: '2028-01-01T00:00:00.000Z',
+                  agreementValue: '1000',
+                  options: [
+                    {
+                      parcelReference: 'PARCEL_1',
+                      parcelSizeUnderAgreement: null,
+                      optionCode: 'OPT_1',
+                      optionStartDate: '2026-01-01T00:00:00.000Z',
+                      optionEndDate: '2027-01-01T00:00:00.000Z',
+                      optionQuantity: '5',
+                      optionValue: null
+                    }
+                  ]
+                }
+              })
+            )
+          }
+        })
+        .mockResolvedValueOnce({
+          Body: {
+            transformToString: vi.fn().mockResolvedValue(
+              JSON.stringify({
+                eventData: {
+                  eventType: AGREEMENT_STATUS_CHANGED,
+                  agreementId: 'AGREE_STATUS_AUTO_YEAR',
+                  agreementStatus: 'LIVE',
+                  statusDate: '2026-02-01T00:00:00.000Z',
+                  userId: 'user1',
+                  options: [
+                    {
+                      parcelReference: 'PARCEL_1',
+                      parcelSizeUnderAgreement: '10',
+                      optionCode: 'OPT_1',
+                      optionStartDate: '2026-01-01T00:00:00.000Z',
+                      optionEndDate: '2027-01-01T00:00:00.000Z',
+                      optionQuantity: '5',
+                      optionValue: '200'
+                    }
+                  ]
+                }
+              })
+            )
+          }
+        })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const optionDataStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_STATUS_AUTO_YEAR')).value
+
+      expect(optionDataStringifier.write).toHaveBeenCalledWith([
+        'AGREE_STATUS_AUTO_YEAR',
+        'PARCEL_1',
+        '10',
+        'OPT_1',
+        1,
+        '2026-01-01T00:00:00.000Z',
+        '2027-01-01T00:00:00.000Z',
+        '5',
+        '200'
+      ])
+      expect(mockMetrics.counter).toHaveBeenCalledWith('auto-populated-option-year')
+    })
+
+    it('should NOT autopopulate optionYear or record metric if optionYear is already provided', async () => {
+      const mockFiles = [{ Key: 'event1.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_EXISTING_YEAR',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2028-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionYear: '2026',
+                    optionStartDate: '2026-01-01T00:00:00.000Z',
+                    optionEndDate: '2027-01-01T00:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '100'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const optionDataStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_EXISTING_YEAR')).value
+
+      expect(optionDataStringifier.write).toHaveBeenCalledWith([
+        'AGREE_EXISTING_YEAR',
+        'PARCEL_1',
+        '10',
+        'OPT_1',
+        '2026',
+        '2026-01-01T00:00:00.000Z',
+        '2027-01-01T00:00:00.000Z',
+        '5',
+        '100'
+      ])
+      expect(mockMetrics.counter).not.toHaveBeenCalled()
+    })
+
+    it('should NOT autopopulate optionYear or record metric if optionStartDate is missing', async () => {
+      const mockFiles = [{ Key: 'event1.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_NO_START',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2028-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionEndDate: '2027-01-01T00:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '100'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const optionDataStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_NO_START')).value
+
+      expect(optionDataStringifier.write).toHaveBeenCalledWith([
+        'AGREE_NO_START',
+        'PARCEL_1',
+        '10',
+        'OPT_1',
+        '',
+        '',
+        '2027-01-01T00:00:00.000Z',
+        '5',
+        '100'
+      ])
+      expect(mockMetrics.counter).not.toHaveBeenCalled()
+    })
+
+    it('should NOT autopopulate optionYear or record metric if optionEndDate is missing', async () => {
+      const mockFiles = [{ Key: 'event1.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_NO_END',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2028-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionStartDate: '2026-01-01T00:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '100'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const optionDataStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_NO_END')).value
+
+      expect(optionDataStringifier.write).toHaveBeenCalledWith([
+        'AGREE_NO_END',
+        'PARCEL_1',
+        '10',
+        'OPT_1',
+        '',
+        '2026-01-01T00:00:00.000Z',
+        '',
+        '5',
+        '100'
+      ])
+      expect(mockMetrics.counter).not.toHaveBeenCalled()
+    })
+
+    it('should autopopulate optionYear correctly even if metrics object is not provided', async () => {
+      const mockFiles = [{ Key: 'event1.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_NO_METRICS',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2028-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionStartDate: '2026-01-01T00:00:00.000Z',
+                    optionEndDate: '2027-01-01T00:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '100'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+      const optionDataStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][0] === 'AGREE_NO_METRICS')).value
+
+      expect(optionDataStringifier.write).toHaveBeenCalledWith([
+        'AGREE_NO_METRICS',
+        'PARCEL_1',
+        '10',
+        'OPT_1',
+        1,
+        '2026-01-01T00:00:00.000Z',
+        '2027-01-01T00:00:00.000Z',
+        '5',
+        '100'
+      ])
+    })
+
+    it('should record multiple metrics when multiple options are autopopulated', async () => {
+      const mockFiles = [{ Key: 'event1.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_MULTI_OPT',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                agreementStartDate: '2026-01-01T00:00:00.000Z',
+                agreementEndDate: '2028-01-01T00:00:00.000Z',
+                agreementValue: '1000',
+                options: [
+                  {
+                    parcelReference: 'PARCEL_1',
+                    parcelSizeUnderAgreement: '10',
+                    optionCode: 'OPT_1',
+                    optionStartDate: '2026-01-01T00:00:00.000Z',
+                    optionEndDate: '2027-01-01T00:00:00.000Z',
+                    optionQuantity: '5',
+                    optionValue: '100'
+                  },
+                  {
+                    parcelReference: 'PARCEL_2',
+                    parcelSizeUnderAgreement: '20',
+                    optionCode: 'OPT_2',
+                    optionStartDate: '2026-01-01T00:00:00.000Z',
+                    optionEndDate: '2028-01-01T00:00:00.000Z',
+                    optionQuantity: '10',
+                    optionValue: '200'
+                  }
+                ]
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      expect(mockMetrics.counter).toHaveBeenCalledTimes(2)
+      expect(mockMetrics.counter).toHaveBeenCalledWith('auto-populated-option-year')
+    })
   })
 })
