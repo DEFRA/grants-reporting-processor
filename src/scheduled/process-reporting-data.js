@@ -42,7 +42,7 @@ export const processReportingDataJob = async (server) => {
     files.sort((a, b) => a.Key.localeCompare(b.Key))
 
     // Process events and generate CSV files
-    tempDir = await processRawEvents(s3Client, files, server.logger)
+    tempDir = await processRawEvents(s3Client, files, server.logger, server.metrics)
 
     const dirFiles = await readdir(tempDir)
     if (dirFiles.length === 0) {

@@ -33,6 +33,7 @@ const CSV_FILES = {
   transactional: ['Reference', 'Status', 'Event_dt', 'User_id']
 }
 
+const AGREEMENT_STATUS_INDEX = 3
 const AGREEMENT_STARTDATE_INDEX = 4
 const AGREEMENT_ENDDATE_INDEX = 5
 const AGREEMENT_VALUE_INDEX = 6
@@ -54,12 +55,13 @@ const createCsvFilename = (prefix) => {
  * @param s3Client
  * @param {Array<Object>} files List of files from S3 to process.
  * @param {Object} logger Logger instance.
+ * @param {Object} metrics Metrics instance.
  * @returns {Promise<string>} Path to the temporary directory containing the generated CSV files.
  */
-export const processRawEvents = async (s3Client, files, logger) => {
+export const processRawEvents = async (s3Client, files, logger, metrics) => {
   let tempDir
   const activeStreams = []
-  const partialAgreementRows = new Map()
+  const agreementRows = new Map()
   const partialOptionsRows = new Map()
   const flushedOptionsAgreements = new Set()
 
@@ -93,13 +95,20 @@ export const processRawEvents = async (s3Client, files, logger) => {
         const event = JSON.parse(content)
         logger.debug({ event }, 'Event parsed')
 
-        writeOrHoldBackRow(event.eventData, targets, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements)
+        writeOrHoldBackRow(
+          event.eventData,
+          targets,
+          agreementRows,
+          partialOptionsRows,
+          flushedOptionsAgreements,
+          metrics
+        )
       } catch (fileError) {
         logger.error(fileError, `Failed to process individual file - ${file.Key}`)
       }
     }
 
-    for (const [, agreementRowData] of partialAgreementRows.entries()) {
+    for (const [, agreementRowData] of agreementRows.entries()) {
       targets['agreements'].stringifier.write(agreementRowData)
     }
 
@@ -138,11 +147,18 @@ const cleanupTempDir = async (tempDir, logger) => {
   }
 }
 
-const writeOrHoldBackRow = (eventData, targets, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements) => {
+const writeOrHoldBackRow = (
+  eventData,
+  targets,
+  agreementRows,
+  partialOptionsRows,
+  flushedOptionsAgreements,
+  metrics
+) => {
   if (eventData.eventType === AGREEMENT_CREATED) {
-    writeAgreementCreatedEvent(targets, eventData, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements)
+    writeAgreementCreatedEvent(targets, eventData, agreementRows, partialOptionsRows, flushedOptionsAgreements, metrics)
   } else if (eventData.eventType === AGREEMENT_STATUS_CHANGED) {
-    writeAgreementStatusEvent(targets, eventData, partialAgreementRows, partialOptionsRows, flushedOptionsAgreements)
+    writeAgreementStatusEvent(targets, eventData, agreementRows, partialOptionsRows, flushedOptionsAgreements, metrics)
   } else {
     throw new Error(`Unknown event type: ${eventData.eventType}`)
   }
@@ -151,9 +167,10 @@ const writeOrHoldBackRow = (eventData, targets, partialAgreementRows, partialOpt
 const writeAgreementCreatedEvent = (
   targets,
   eventData,
-  partialAgreementRows,
+  agreementRows,
   partialOptionsRows,
-  flushedOptionsAgreements
+  flushedOptionsAgreements,
+  metrics
 ) => {
   const agreementRowData = [
     eventData.sbi,
@@ -164,18 +181,13 @@ const writeAgreementCreatedEvent = (
     valueOrEmptyString(eventData.agreementEndDate),
     valueOrEmptyString(eventData.agreementValue)
   ]
-  // Write to agreements CSV, or hold back for later if any fields are missing
-  if (agreementRowData.includes('')) {
-    partialAgreementRows.set(eventData.agreementId, agreementRowData)
-  } else {
-    targets['agreements'].stringifier.write(agreementRowData)
-    partialAgreementRows.delete(eventData.agreementId)
-  }
+  // Hold back all agreement rows until all status change events have been processed
+  agreementRows.set(eventData.agreementId, agreementRowData)
 
-  writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements)
+  writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements, metrics)
 }
 
-const writeOrHoldBackOptionsRows = (eventData, targets, partialOptionsRows, flushedOptionsAgreements) => {
+const writeOrHoldBackOptionsRows = (eventData, targets, partialOptionsRows, flushedOptionsAgreements, metrics) => {
   if (flushedOptionsAgreements.has(eventData.agreementId)) {
     return
   }
@@ -186,7 +198,7 @@ const writeOrHoldBackOptionsRows = (eventData, targets, partialOptionsRows, flus
       option.parcelReference,
       valueOrEmptyString(option.parcelSizeUnderAgreement),
       option.optionCode,
-      valueOrEmptyString(option.optionYear),
+      autoPopulateOptionYear(option, metrics),
       valueOrEmptyString(option.optionStartDate),
       valueOrEmptyString(option.optionEndDate),
       valueOrEmptyString(option.optionQuantity),
@@ -205,6 +217,15 @@ const writeOrHoldBackOptionsRows = (eventData, targets, partialOptionsRows, flus
   }
 }
 
+const autoPopulateOptionYear = (option, metrics) => {
+  if (!option.optionYear && option.optionStartDate && option.optionEndDate) {
+    const { optionStartDate, optionEndDate } = option
+    metrics.counter('auto-populated-option-year')
+    return new Date(optionEndDate).getFullYear() - new Date(optionStartDate).getFullYear()
+  }
+  return valueOrEmptyString(option.optionYear)
+}
+
 const isOptionsRowComplete = (row) => {
   return !row.some((value, index) => {
     if (index === OPTION_PARCEL_REF_INDEX || index === OPTION_PARCEL_SIZE_INDEX) {
@@ -221,9 +242,10 @@ const valueOrEmptyString = (value) => {
 const writeAgreementStatusEvent = (
   targets,
   eventData,
-  partialAgreementRows,
+  agreementRows,
   partialOptionsRows,
-  flushedOptionsAgreements
+  flushedOptionsAgreements,
+  metrics
 ) => {
   // Write to transactional CSV
   targets['transactional'].stringifier.write([
@@ -233,31 +255,22 @@ const writeAgreementStatusEvent = (
     eventData.userId ?? ''
   ])
 
-  if (partialAgreementRows.has(eventData.agreementId)) {
-    const agreementRowData = partialAgreementRows.get(eventData.agreementId)
-    let updated = false
+  if (agreementRows.has(eventData.agreementId)) {
+    const agreementRowData = agreementRows.get(eventData.agreementId)
+    if (eventData.agreementStatus) {
+      agreementRowData[AGREEMENT_STATUS_INDEX] = eventData.agreementStatus
+    }
     if (eventData.agreementStartDate) {
       agreementRowData[AGREEMENT_STARTDATE_INDEX] = eventData.agreementStartDate
-      updated = true
     }
     if (eventData.agreementEndDate) {
       agreementRowData[AGREEMENT_ENDDATE_INDEX] = eventData.agreementEndDate
-      updated = true
     }
     if (eventData.agreementValue) {
       agreementRowData[AGREEMENT_VALUE_INDEX] = eventData.agreementValue
-      updated = true
     }
-
-    if (updated) {
-      if (!agreementRowData.includes('')) {
-        targets['agreements'].stringifier.write(agreementRowData)
-        partialAgreementRows.delete(eventData.agreementId)
-      } else {
-        partialAgreementRows.set(eventData.agreementId, agreementRowData)
-      }
-    }
+    agreementRows.set(eventData.agreementId, agreementRowData)
   }
 
-  writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements)
+  writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements, metrics)
 }
