@@ -147,7 +147,7 @@ describe('reporting-data-service', () => {
     // Check if parcels were written
     const parcelsStringifierIndex = vi
       .mocked(stringify)
-      .mock.calls.findIndex((call) => call[0].columns.includes('parcel_reference'))
+      .mock.calls.findIndex((call) => call[0].columns.length === 2 && call[0].columns.includes('Parcel_reference'))
     const parcelsStringifier = vi.mocked(stringify).mock.results[parcelsStringifierIndex].value
     expect(parcelsStringifier.write).toHaveBeenCalledWith(['AGREE_123', 'PARCEL_1'])
     expect(parcelsStringifier.write).toHaveBeenCalledWith(['AGREE_123', 'PARCEL_2'])
@@ -197,7 +197,7 @@ describe('reporting-data-service', () => {
 
     const parcelsStringifierIndex = vi
       .mocked(stringify)
-      .mock.calls.findIndex((call) => call[0].columns.includes('parcel_reference'))
+      .mock.calls.findIndex((call) => call[0].columns.includes('Parcel_reference'))
     const parcelsStringifier = vi.mocked(stringify).mock.results[parcelsStringifierIndex].value
     expect(parcelsStringifier.write).not.toHaveBeenCalled()
   })
