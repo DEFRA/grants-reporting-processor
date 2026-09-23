@@ -30,7 +30,8 @@ const CSV_FILES = {
     'Option_qty',
     'Option_value'
   ],
-  transactional: ['Reference', 'Status', 'Event_dt', 'User_id']
+  transactional: ['Reference', 'Status', 'Event_dt', 'User_id'],
+  parcels: ['Agreement_ID', 'Parcel_reference']
 }
 
 const AGREEMENT_STATUS_INDEX = 3
@@ -183,6 +184,12 @@ const writeAgreementCreatedEvent = (
   ]
   // Hold back all agreement rows until all status change events have been processed
   agreementRows.set(eventData.agreementId, agreementRowData)
+
+  if (eventData.parcels?.length) {
+    for (const parcel of eventData.parcels) {
+      targets['parcels'].stringifier.write([eventData.agreementId, parcel])
+    }
+  }
 
   writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements, metrics)
 }
