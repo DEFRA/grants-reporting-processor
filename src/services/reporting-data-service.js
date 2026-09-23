@@ -31,7 +31,7 @@ const CSV_FILES = {
     'Option_value'
   ],
   transactional: ['Reference', 'Status', 'Event_dt', 'User_id'],
-  parcels: ['agreementId', 'parcel_reference']
+  parcels: ['Agreement_ID', 'parcel_reference']
 }
 
 const AGREEMENT_STATUS_INDEX = 3
