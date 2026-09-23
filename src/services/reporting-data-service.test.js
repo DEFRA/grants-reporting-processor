@@ -87,6 +87,7 @@ describe('reporting-data-service', () => {
                 agreementStartDate: '2026-01-11T10:00:00.000Z',
                 agreementEndDate: '2027-01-11T10:00:00.000Z',
                 agreementValue: '354',
+                parcels: ['PARCEL_1', 'PARCEL_2'],
                 options: [
                   {
                     parcelReference: 'PARCEL_1',
@@ -124,9 +125,9 @@ describe('reporting-data-service', () => {
 
     expect(tempDir).toBe('/tmp/reporting-data-123')
     expect(fsPromises.mkdtemp).toHaveBeenCalled()
-    expect(stringify).toHaveBeenCalledTimes(4)
-    expect(fs.createWriteStream).toHaveBeenCalledTimes(4)
-    expect(pipeline).toHaveBeenCalledTimes(4)
+    expect(stringify).toHaveBeenCalledTimes(5)
+    expect(fs.createWriteStream).toHaveBeenCalledTimes(5)
+    expect(pipeline).toHaveBeenCalledTimes(5)
     expect(mockS3Client.send).toHaveBeenCalledTimes(2)
 
     // Check if agreement was written
@@ -143,7 +144,62 @@ describe('reporting-data-service', () => {
       '354'
     ])
 
+    // Check if parcels were written
+    const parcelsStringifierIndex = vi
+      .mocked(stringify)
+      .mock.calls.findIndex((call) => call[0].columns.includes('parcel_reference'))
+    const parcelsStringifier = vi.mocked(stringify).mock.results[parcelsStringifierIndex].value
+    expect(parcelsStringifier.write).toHaveBeenCalledWith(['AGREE_123', 'PARCEL_1'])
+    expect(parcelsStringifier.write).toHaveBeenCalledWith(['AGREE_123', 'PARCEL_2'])
+
     expect(mockLogger.info).toHaveBeenCalledWith('All CSV files finalised on disk')
+  })
+
+  it('should handle missing or empty parcels field correctly', async () => {
+    const mockFiles = [{ Key: 'event1.json' }, { Key: 'event2.json' }]
+    mockS3Client.send
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '123456789',
+                agreementId: 'AGREE_NO_PARCELS',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                options: []
+                // parcels is missing
+              }
+            })
+          )
+        }
+      })
+      .mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: AGREEMENT_CREATED,
+                sbi: '987654321',
+                agreementId: 'AGREE_EMPTY_PARCELS',
+                agreementType: 'Woodland',
+                agreementStatus: 'LIVE',
+                parcels: [], // parcels is empty
+                options: []
+              }
+            })
+          )
+        }
+      })
+
+    await processRawEvents(mockS3Client, mockFiles, mockLogger)
+
+    const parcelsStringifierIndex = vi
+      .mocked(stringify)
+      .mock.calls.findIndex((call) => call[0].columns.includes('parcel_reference'))
+    const parcelsStringifier = vi.mocked(stringify).mock.results[parcelsStringifierIndex].value
+    expect(parcelsStringifier.write).not.toHaveBeenCalled()
   })
 
   it('should buffer partial agreement rows and flush them to agreements stringifier', async () => {
