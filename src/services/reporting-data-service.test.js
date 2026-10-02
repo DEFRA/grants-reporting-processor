@@ -6,6 +6,11 @@ import { pipeline } from 'node:stream/promises'
 import { stringify } from 'csv-stringify'
 import { processRawEvents } from './reporting-data-service.js'
 import { AGREEMENT_CREATED, AGREEMENT_STATUS_CHANGED } from '@defra/grants-reporting-publisher/constants'
+import { trackEvent } from '#/common/helpers/logging/logger.js'
+
+vi.mock('#/common/helpers/logging/logger.js', () => ({
+  trackEvent: vi.fn()
+}))
 
 vi.mock('../config.js', () => ({
   config: {
@@ -51,7 +56,8 @@ describe('reporting-data-service', () => {
     mockLogger = {
       info: vi.fn(),
       error: vi.fn(),
-      debug: vi.fn()
+      debug: vi.fn(),
+      warn: vi.fn()
     }
 
     mockMetrics = {
@@ -152,6 +158,15 @@ describe('reporting-data-service', () => {
     expect(parcelsStringifier.write).toHaveBeenCalledWith(['AGREE_123', 'PARCEL_1'])
     expect(parcelsStringifier.write).toHaveBeenCalledWith(['AGREE_123', 'PARCEL_2'])
 
+    expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', AGREEMENT_CREATED, {
+      reference: 'agreementId: AGREE_123'
+    })
+    expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', AGREEMENT_STATUS_CHANGED, {
+      reference: 'agreementId: AGREE_123, status: LIVE'
+    })
+
+    expect(mockLogger.warn).not.toHaveBeenCalled()
+
     expect(mockLogger.info).toHaveBeenCalledWith('All CSV files finalised on disk')
   })
 
@@ -200,6 +215,13 @@ describe('reporting-data-service', () => {
       .mock.calls.findIndex((call) => call[0].columns.includes('Parcel_reference'))
     const parcelsStringifier = vi.mocked(stringify).mock.results[parcelsStringifierIndex].value
     expect(parcelsStringifier.write).not.toHaveBeenCalled()
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Agreement created event missing parcels: fileKey: event1.json, agreementId: AGREE_NO_PARCELS'
+    )
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Agreement created event missing parcels: fileKey: event2.json, agreementId: AGREE_EMPTY_PARCELS'
+    )
   })
 
   it('should buffer partial agreement rows and flush them to agreements stringifier', async () => {

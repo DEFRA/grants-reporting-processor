@@ -7,6 +7,7 @@ import { stringify } from 'csv-stringify'
 import { config } from '../config.js'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { AGREEMENT_CREATED, AGREEMENT_STATUS_CHANGED } from '@defra/grants-reporting-publisher/constants'
+import { trackEvent } from '#/common/helpers/logging/logger.js'
 
 const CSV_FILES = {
   agreements: [
@@ -86,7 +87,6 @@ export const processRawEvents = async (s3Client, files, logger, metrics) => {
 
     for (const file of files) {
       try {
-        logger.debug({ key: file.Key }, 'Processing file')
         const getParams = {
           Bucket: config.get('aws.s3.rawBucketName'),
           Key: file.Key
@@ -94,16 +94,17 @@ export const processRawEvents = async (s3Client, files, logger, metrics) => {
         const response = await s3Client.send(new GetObjectCommand(getParams))
         const content = await response.Body.transformToString()
         const event = JSON.parse(content)
-        logger.debug({ event }, 'Event parsed')
 
-        writeOrHoldBackRow(
-          event.eventData,
+        writeOrHoldBackRow({
+          eventData: event.eventData,
           targets,
           agreementRows,
           partialOptionsRows,
           flushedOptionsAgreements,
-          metrics
-        )
+          metrics,
+          logger,
+          fileKey: file.Key
+        })
       } catch (fileError) {
         logger.error(fileError, `Failed to process individual file - ${file.Key}`)
       }
@@ -148,31 +149,50 @@ const cleanupTempDir = async (tempDir, logger) => {
   }
 }
 
-const writeOrHoldBackRow = (
+const writeOrHoldBackRow = ({
   eventData,
   targets,
   agreementRows,
   partialOptionsRows,
   flushedOptionsAgreements,
-  metrics
-) => {
+  metrics,
+  logger,
+  fileKey
+}) => {
   if (eventData.eventType === AGREEMENT_CREATED) {
-    writeAgreementCreatedEvent(targets, eventData, agreementRows, partialOptionsRows, flushedOptionsAgreements, metrics)
+    writeAgreementCreatedEvent({
+      targets,
+      eventData,
+      agreementRows,
+      partialOptionsRows,
+      flushedOptionsAgreements,
+      metrics,
+      logger,
+      fileKey
+    })
+    trackEvent(logger, 'event-processed', AGREEMENT_CREATED, {
+      reference: `agreementId: ${eventData.agreementId}`
+    })
   } else if (eventData.eventType === AGREEMENT_STATUS_CHANGED) {
     writeAgreementStatusEvent(targets, eventData, agreementRows, partialOptionsRows, flushedOptionsAgreements, metrics)
+    trackEvent(logger, 'event-processed', AGREEMENT_STATUS_CHANGED, {
+      reference: `agreementId: ${eventData.agreementId}, status: ${eventData.agreementStatus}`
+    })
   } else {
     throw new Error(`Unknown event type: ${eventData.eventType}`)
   }
 }
 
-const writeAgreementCreatedEvent = (
+const writeAgreementCreatedEvent = ({
   targets,
   eventData,
   agreementRows,
   partialOptionsRows,
   flushedOptionsAgreements,
-  metrics
-) => {
+  metrics,
+  logger,
+  fileKey
+}) => {
   const agreementRowData = [
     eventData.sbi,
     eventData.agreementId,
@@ -189,6 +209,9 @@ const writeAgreementCreatedEvent = (
     for (const parcel of eventData.parcels) {
       targets['parcels'].stringifier.write([eventData.agreementId, parcel])
     }
+  } else {
+    //temporarily log this as we need to find out which events are missing parcels
+    logger.warn(`Agreement created event missing parcels: fileKey: ${fileKey}, agreementId: ${eventData.agreementId}`)
   }
 
   writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements, metrics)
