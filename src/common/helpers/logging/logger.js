@@ -7,3 +7,13 @@ const logger = pino(loggerOptions)
 export function createLogger() {
   return logger
 }
+
+export const trackEvent = (loggerInstance, type, category, properties) => {
+  loggerInstance.info({
+    event: {
+      type,
+      category,
+      ...properties
+    }
+  })
+}
