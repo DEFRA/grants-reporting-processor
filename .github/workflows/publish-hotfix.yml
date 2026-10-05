@@ -41,6 +41,6 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Publish Hot Fix
-        uses: DEFRA/cdp-build-action/build-hotfix@458fd8d25ebbd1bde485b0ecf446a7977b533ebc #stable
+        uses: DEFRA/cdp-build-action/build-hotfix@5ff8be1833b05bfdbe396b3e46e0802822b94615 #stable
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
