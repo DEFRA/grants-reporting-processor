@@ -40,6 +40,6 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Build and Publish
-        uses: DEFRA/cdp-build-action/build@458fd8d25ebbd1bde485b0ecf446a7977b533ebc #stable
+        uses: DEFRA/cdp-build-action/build@3761ef22decf8615b8fd275cd9b7142f8d356a11 #stable
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
