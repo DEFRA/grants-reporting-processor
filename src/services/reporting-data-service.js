@@ -186,6 +186,7 @@ const writeOrHoldBackRow = ({
     })
   } else if (eventData.eventType === CLAIM_SUBMITTED) {
     writeClaimSubmittedEvent(targets, eventData)
+    writeClaimStatusEvent(targets, eventData)
     trackEvent(logger, EVENT_PROCESSED, CLAIM_SUBMITTED, {
       reference: `agreementId: ${eventData.agreementId}, claimId: ${eventData.claimId}`
     })
@@ -278,6 +279,16 @@ const isOptionsRowComplete = (row) => {
 
 const valueOrEmptyString = (value) => {
   return value ?? ''
+}
+
+const writeClaimStatusEvent = (targets, eventData) => {
+  // Write to transactional CSV
+  targets['transactional'].stringifier.write([
+    eventData.claimId,
+    eventData.claimStatus,
+    eventData.claimReceiptDate,
+    eventData.userId ?? '' //there is no user id as it stands, this is a wider outstanding issue
+  ])
 }
 
 const writeAgreementStatusEvent = (
