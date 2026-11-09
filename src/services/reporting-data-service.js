@@ -47,6 +47,8 @@ const AGREEMENT_VALUE_INDEX = 6
 const OPTION_PARCEL_REF_INDEX = 1
 const OPTION_PARCEL_SIZE_INDEX = 2
 
+const EVENT_PROCESSED = 'event-processed'
+
 const padStart = (number) => {
   return number.toString().padStart(2, '0')
 }
@@ -174,17 +176,17 @@ const writeOrHoldBackRow = ({
       logger,
       fileKey
     })
-    trackEvent(logger, 'event-processed', AGREEMENT_CREATED, {
+    trackEvent(logger, EVENT_PROCESSED, AGREEMENT_CREATED, {
       reference: `agreementId: ${eventData.agreementId}`
     })
   } else if (eventData.eventType === AGREEMENT_STATUS_CHANGED) {
     writeAgreementStatusEvent(targets, eventData, agreementRows, partialOptionsRows, flushedOptionsAgreements, metrics)
-    trackEvent(logger, 'event-processed', AGREEMENT_STATUS_CHANGED, {
+    trackEvent(logger, EVENT_PROCESSED, AGREEMENT_STATUS_CHANGED, {
       reference: `agreementId: ${eventData.agreementId}, status: ${eventData.agreementStatus}`
     })
   } else if (eventData.eventType === CLAIM_SUBMITTED) {
     writeClaimSubmittedEvent(targets, eventData)
-    trackEvent(logger, 'event-processed', CLAIM_SUBMITTED, {
+    trackEvent(logger, EVENT_PROCESSED, CLAIM_SUBMITTED, {
       reference: `agreementId: ${eventData.agreementId}, claimId: ${eventData.claimId}`
     })
   } else {
