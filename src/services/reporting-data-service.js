@@ -286,8 +286,8 @@ const writeClaimStatusEvent = (targets, eventData) => {
   targets['transactional'].stringifier.write([
     eventData.claimId,
     eventData.claimStatus,
-    eventData.statusDate,
-    eventData.userId ?? ''
+    eventData.claimReceiptDate,
+    eventData.userId ?? '' //there is no user id as it stands, this is a wider outstanding issue
   ])
 }
 

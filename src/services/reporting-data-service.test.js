@@ -1842,8 +1842,6 @@ describe('reporting-data-service', () => {
                 claimStatus: 'PAID',
                 claimReceiptDate: '2026-03-01T12:00:00.000Z',
                 claimPaidDate: '2026-03-15T09:30:00.000Z',
-                statusDate: '2026-03-15T09:30:00.000Z',
-                userId: 'user_claim_2',
                 claimValue: 2500
               }
             })
@@ -1873,12 +1871,7 @@ describe('reporting-data-service', () => {
         .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
       const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
 
-      expect(transactionalStringifier.write).toHaveBeenCalledWith([
-        'CLAIM_789',
-        'PAID',
-        '2026-03-15T09:30:00.000Z',
-        'user_claim_2'
-      ])
+      expect(transactionalStringifier.write).toHaveBeenCalledWith(['CLAIM_789', 'PAID', '2026-03-01T12:00:00.000Z', ''])
     })
 
     it('should process mixed events including CLAIM_SUBMITTED', async () => {
@@ -1928,8 +1921,6 @@ describe('reporting-data-service', () => {
                   claimId: 'CLAIM_MIXED_1',
                   claimStatus: 'SUBMITTED',
                   claimReceiptDate: '2026-02-01T00:00:00.000Z',
-                  statusDate: '2026-02-01T00:00:00.000Z',
-                  userId: 'user2',
                   claimValue: '500'
                 }
               })
@@ -1982,7 +1973,7 @@ describe('reporting-data-service', () => {
         'CLAIM_MIXED_1',
         'SUBMITTED',
         '2026-02-01T00:00:00.000Z',
-        'user2'
+        ''
       ])
 
       expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', CLAIM_SUBMITTED, {
