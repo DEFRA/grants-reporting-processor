@@ -1716,7 +1716,7 @@ describe('reporting-data-service', () => {
       ])
     })
 
-    it('should process CLAIM_SUBMITTED event and write to claims CSV only', async () => {
+    it('should process CLAIM_SUBMITTED event and write to claims and transactional CSV files', async () => {
       const mockFiles = [{ Key: 'claim1.json' }]
       mockS3Client.send.mockResolvedValueOnce({
         Body: {
@@ -1729,6 +1729,8 @@ describe('reporting-data-service', () => {
                 claimId: 'CLAIM_456',
                 claimStatus: 'SUBMITTED',
                 claimReceiptDate: '2026-03-01T12:00:00.000Z',
+                statusDate: '2026-03-01T12:00:00.000Z',
+                userId: 'user_claim_1',
                 claimValue: 1500.5
               }
             })
@@ -1754,6 +1756,19 @@ describe('reporting-data-service', () => {
         1500.5
       ])
 
+      const transactionalStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
+      const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
+
+      expect(transactionalStringifier.write).toHaveBeenCalledTimes(1)
+      expect(transactionalStringifier.write).toHaveBeenCalledWith([
+        'CLAIM_456',
+        'SUBMITTED',
+        '2026-03-01T12:00:00.000Z',
+        'user_claim_1'
+      ])
+
       const agreementsStringifierIndex = vi
         .mocked(stringify)
         .mock.calls.findIndex((call) => call[0].columns.includes('Agreement_Type'))
@@ -1772,15 +1787,45 @@ describe('reporting-data-service', () => {
       const optionsStringifier = vi.mocked(stringify).mock.results[optionsStringifierIndex].value
       expect(optionsStringifier.write).not.toHaveBeenCalled()
 
+      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', CLAIM_SUBMITTED, {
+        reference: 'agreementId: AGREE_123, claimId: CLAIM_456'
+      })
+    })
+
+    it('should process CLAIM_SUBMITTED event when userId is omitted and write empty string to transactional CSV', async () => {
+      const mockFiles = [{ Key: 'claim_no_user.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: CLAIM_SUBMITTED,
+                sbi: '123456789',
+                agreementId: 'AGREE_123',
+                claimId: 'CLAIM_NO_USER',
+                claimStatus: 'SUBMITTED',
+                claimReceiptDate: '2026-03-01T12:00:00.000Z',
+                statusDate: '2026-03-01T12:00:00.000Z',
+                claimValue: 1000
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
       const transactionalStringifierIndex = vi
         .mocked(stringify)
         .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
       const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
-      expect(transactionalStringifier.write).not.toHaveBeenCalled()
 
-      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', CLAIM_SUBMITTED, {
-        reference: 'agreementId: AGREE_123, claimId: CLAIM_456'
-      })
+      expect(transactionalStringifier.write).toHaveBeenCalledWith([
+        'CLAIM_NO_USER',
+        'SUBMITTED',
+        '2026-03-01T12:00:00.000Z',
+        ''
+      ])
     })
 
     it('should process CLAIM_SUBMITTED event with claimPaidDate provided', async () => {
@@ -1797,6 +1842,8 @@ describe('reporting-data-service', () => {
                 claimStatus: 'PAID',
                 claimReceiptDate: '2026-03-01T12:00:00.000Z',
                 claimPaidDate: '2026-03-15T09:30:00.000Z',
+                statusDate: '2026-03-15T09:30:00.000Z',
+                userId: 'user_claim_2',
                 claimValue: 2500
               }
             })
@@ -1819,6 +1866,18 @@ describe('reporting-data-service', () => {
         '2026-03-01T12:00:00.000Z',
         '2026-03-15T09:30:00.000Z',
         2500
+      ])
+
+      const transactionalStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
+      const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
+
+      expect(transactionalStringifier.write).toHaveBeenCalledWith([
+        'CLAIM_789',
+        'PAID',
+        '2026-03-15T09:30:00.000Z',
+        'user_claim_2'
       ])
     })
 
@@ -1869,6 +1928,8 @@ describe('reporting-data-service', () => {
                   claimId: 'CLAIM_MIXED_1',
                   claimStatus: 'SUBMITTED',
                   claimReceiptDate: '2026-02-01T00:00:00.000Z',
+                  statusDate: '2026-02-01T00:00:00.000Z',
+                  userId: 'user2',
                   claimValue: '500'
                 }
               })
@@ -1904,6 +1965,24 @@ describe('reporting-data-service', () => {
         '2026-01-01T00:00:00.000Z',
         '2027-01-01T00:00:00.000Z',
         '1000'
+      ])
+
+      const transactionalStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
+      const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
+
+      expect(transactionalStringifier.write).toHaveBeenCalledWith([
+        'AGREE_MIXED',
+        'LIVE',
+        '2026-01-15T00:00:00.000Z',
+        'user1'
+      ])
+      expect(transactionalStringifier.write).toHaveBeenCalledWith([
+        'CLAIM_MIXED_1',
+        'SUBMITTED',
+        '2026-02-01T00:00:00.000Z',
+        'user2'
       ])
 
       expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', CLAIM_SUBMITTED, {
