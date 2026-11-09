@@ -6,7 +6,11 @@ import { pipeline } from 'node:stream/promises'
 import { stringify } from 'csv-stringify'
 import { config } from '../config.js'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
-import { AGREEMENT_CREATED, AGREEMENT_STATUS_CHANGED } from '@defra/grants-reporting-publisher/constants'
+import {
+  AGREEMENT_CREATED,
+  AGREEMENT_STATUS_CHANGED,
+  CLAIM_SUBMITTED
+} from '@defra/grants-reporting-publisher/constants'
 import { trackEvent } from '#/common/helpers/logging/logger.js'
 
 const CSV_FILES = {
@@ -42,6 +46,8 @@ const AGREEMENT_VALUE_INDEX = 6
 
 const OPTION_PARCEL_REF_INDEX = 1
 const OPTION_PARCEL_SIZE_INDEX = 2
+
+const EVENT_PROCESSED = 'event-processed'
 
 const padStart = (number) => {
   return number.toString().padStart(2, '0')
@@ -170,13 +176,18 @@ const writeOrHoldBackRow = ({
       logger,
       fileKey
     })
-    trackEvent(logger, 'event-processed', AGREEMENT_CREATED, {
+    trackEvent(logger, EVENT_PROCESSED, AGREEMENT_CREATED, {
       reference: `agreementId: ${eventData.agreementId}`
     })
   } else if (eventData.eventType === AGREEMENT_STATUS_CHANGED) {
     writeAgreementStatusEvent(targets, eventData, agreementRows, partialOptionsRows, flushedOptionsAgreements, metrics)
-    trackEvent(logger, 'event-processed', AGREEMENT_STATUS_CHANGED, {
+    trackEvent(logger, EVENT_PROCESSED, AGREEMENT_STATUS_CHANGED, {
       reference: `agreementId: ${eventData.agreementId}, status: ${eventData.agreementStatus}`
+    })
+  } else if (eventData.eventType === CLAIM_SUBMITTED) {
+    writeClaimSubmittedEvent(targets, eventData)
+    trackEvent(logger, EVENT_PROCESSED, CLAIM_SUBMITTED, {
+      reference: `agreementId: ${eventData.agreementId}, claimId: ${eventData.claimId}`
     })
   } else {
     throw new Error(`Unknown event type: ${eventData.eventType}`)
@@ -303,4 +314,16 @@ const writeAgreementStatusEvent = (
   }
 
   writeOrHoldBackOptionsRows(eventData, targets, partialOptionsRows, flushedOptionsAgreements, metrics)
+}
+
+const writeClaimSubmittedEvent = (targets, eventData) => {
+  targets['claims'].stringifier.write([
+    eventData.sbi,
+    eventData.agreementId,
+    eventData.claimId,
+    eventData.claimStatus,
+    valueOrEmptyString(eventData.claimReceiptDate),
+    valueOrEmptyString(eventData.claimPaidDate), //currently this will always be blank
+    valueOrEmptyString(eventData.claimValue)
+  ])
 }

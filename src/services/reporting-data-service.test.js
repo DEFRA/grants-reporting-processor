@@ -5,7 +5,11 @@ import * as fs from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { stringify } from 'csv-stringify'
 import { processRawEvents } from './reporting-data-service.js'
-import { AGREEMENT_CREATED, AGREEMENT_STATUS_CHANGED } from '@defra/grants-reporting-publisher/constants'
+import {
+  AGREEMENT_CREATED,
+  AGREEMENT_STATUS_CHANGED,
+  CLAIM_SUBMITTED
+} from '@defra/grants-reporting-publisher/constants'
 import { trackEvent } from '#/common/helpers/logging/logger.js'
 
 vi.mock('#/common/helpers/logging/logger.js', () => ({
@@ -1710,6 +1714,201 @@ describe('reporting-data-service', () => {
         '2027-02-01T00:00:00.000Z',
         '2000'
       ])
+    })
+
+    it('should process CLAIM_SUBMITTED event and write to claims CSV only', async () => {
+      const mockFiles = [{ Key: 'claim1.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: CLAIM_SUBMITTED,
+                sbi: '123456789',
+                agreementId: 'AGREE_123',
+                claimId: 'CLAIM_456',
+                claimStatus: 'SUBMITTED',
+                claimReceiptDate: '2026-03-01T12:00:00.000Z',
+                claimValue: 1500.5
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const claimsStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.length === 7 && call[0].columns.includes('Claim_ID'))
+      const claimsStringifier = vi.mocked(stringify).mock.results[claimsStringifierIndex].value
+
+      expect(claimsStringifier.write).toHaveBeenCalledTimes(1)
+      expect(claimsStringifier.write).toHaveBeenCalledWith([
+        '123456789',
+        'AGREE_123',
+        'CLAIM_456',
+        'SUBMITTED',
+        '2026-03-01T12:00:00.000Z',
+        '',
+        1500.5
+      ])
+
+      const agreementsStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Agreement_Type'))
+      const agreementsStringifier = vi.mocked(stringify).mock.results[agreementsStringifierIndex].value
+      expect(agreementsStringifier.write).not.toHaveBeenCalled()
+
+      const parcelsStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.length === 2 && call[0].columns.includes('Parcel_reference'))
+      const parcelsStringifier = vi.mocked(stringify).mock.results[parcelsStringifierIndex].value
+      expect(parcelsStringifier.write).not.toHaveBeenCalled()
+
+      const optionsStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Option_code'))
+      const optionsStringifier = vi.mocked(stringify).mock.results[optionsStringifierIndex].value
+      expect(optionsStringifier.write).not.toHaveBeenCalled()
+
+      const transactionalStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
+      const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
+      expect(transactionalStringifier.write).not.toHaveBeenCalled()
+
+      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', CLAIM_SUBMITTED, {
+        reference: 'agreementId: AGREE_123, claimId: CLAIM_456'
+      })
+    })
+
+    it('should process CLAIM_SUBMITTED event with claimPaidDate provided', async () => {
+      const mockFiles = [{ Key: 'claim2.json' }]
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(
+            JSON.stringify({
+              eventData: {
+                eventType: CLAIM_SUBMITTED,
+                sbi: '987654321',
+                agreementId: 'AGREE_999',
+                claimId: 'CLAIM_789',
+                claimStatus: 'PAID',
+                claimReceiptDate: '2026-03-01T12:00:00.000Z',
+                claimPaidDate: '2026-03-15T09:30:00.000Z',
+                claimValue: 2500
+              }
+            })
+          )
+        }
+      })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const claimsStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.length === 7 && call[0].columns.includes('Claim_ID'))
+      const claimsStringifier = vi.mocked(stringify).mock.results[claimsStringifierIndex].value
+
+      expect(claimsStringifier.write).toHaveBeenCalledWith([
+        '987654321',
+        'AGREE_999',
+        'CLAIM_789',
+        'PAID',
+        '2026-03-01T12:00:00.000Z',
+        '2026-03-15T09:30:00.000Z',
+        2500
+      ])
+    })
+
+    it('should process mixed events including CLAIM_SUBMITTED', async () => {
+      const mockFiles = [{ Key: 'agreement1.json' }, { Key: 'status1.json' }, { Key: 'claim1.json' }]
+      mockS3Client.send
+        .mockResolvedValueOnce({
+          Body: {
+            transformToString: vi.fn().mockResolvedValue(
+              JSON.stringify({
+                eventData: {
+                  eventType: AGREEMENT_CREATED,
+                  sbi: '111111111',
+                  agreementId: 'AGREE_MIXED',
+                  agreementType: 'Woodland',
+                  agreementStatus: 'DRAFT',
+                  agreementStartDate: '2026-01-01T00:00:00.000Z',
+                  agreementEndDate: '2027-01-01T00:00:00.000Z',
+                  agreementValue: '1000'
+                }
+              })
+            )
+          }
+        })
+        .mockResolvedValueOnce({
+          Body: {
+            transformToString: vi.fn().mockResolvedValue(
+              JSON.stringify({
+                eventData: {
+                  eventType: AGREEMENT_STATUS_CHANGED,
+                  agreementId: 'AGREE_MIXED',
+                  agreementStatus: 'LIVE',
+                  statusDate: '2026-01-15T00:00:00.000Z',
+                  userId: 'user1'
+                }
+              })
+            )
+          }
+        })
+        .mockResolvedValueOnce({
+          Body: {
+            transformToString: vi.fn().mockResolvedValue(
+              JSON.stringify({
+                eventData: {
+                  eventType: CLAIM_SUBMITTED,
+                  sbi: '111111111',
+                  agreementId: 'AGREE_MIXED',
+                  claimId: 'CLAIM_MIXED_1',
+                  claimStatus: 'SUBMITTED',
+                  claimReceiptDate: '2026-02-01T00:00:00.000Z',
+                  claimValue: '500'
+                }
+              })
+            )
+          }
+        })
+
+      await processRawEvents(mockS3Client, mockFiles, mockLogger, mockMetrics)
+
+      const claimsStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.length === 7 && call[0].columns.includes('Claim_ID'))
+      const claimsStringifier = vi.mocked(stringify).mock.results[claimsStringifierIndex].value
+
+      expect(claimsStringifier.write).toHaveBeenCalledWith([
+        '111111111',
+        'AGREE_MIXED',
+        'CLAIM_MIXED_1',
+        'SUBMITTED',
+        '2026-02-01T00:00:00.000Z',
+        '',
+        '500'
+      ])
+
+      const agreementStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][1] === 'AGREE_MIXED')).value
+      expect(agreementStringifier.write).toHaveBeenCalledWith([
+        '111111111',
+        'AGREE_MIXED',
+        'Woodland',
+        'LIVE',
+        '2026-01-01T00:00:00.000Z',
+        '2027-01-01T00:00:00.000Z',
+        '1000'
+      ])
+
+      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', CLAIM_SUBMITTED, {
+        reference: 'agreementId: AGREE_MIXED, claimId: CLAIM_MIXED_1'
+      })
     })
   })
 })
