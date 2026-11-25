@@ -12,6 +12,8 @@ import {
 } from '@defra/grants-reporting-publisher/constants'
 import { trackEvent } from '#/common/helpers/logging/logger.js'
 
+const APPLICATION_CREATED = 'APPLICATION_CREATED'
+
 vi.mock('#/common/helpers/logging/logger.js', () => ({
   trackEvent: vi.fn()
 }))
@@ -135,9 +137,9 @@ describe('reporting-data-service', () => {
 
     expect(tempDir).toBe('/tmp/reporting-data-123')
     expect(fsPromises.mkdtemp).toHaveBeenCalled()
-    expect(stringify).toHaveBeenCalledTimes(5)
-    expect(fs.createWriteStream).toHaveBeenCalledTimes(5)
-    expect(pipeline).toHaveBeenCalledTimes(5)
+    expect(stringify).toHaveBeenCalledTimes(6)
+    expect(fs.createWriteStream).toHaveBeenCalledTimes(6)
+    expect(pipeline).toHaveBeenCalledTimes(6)
     expect(mockS3Client.send).toHaveBeenCalledTimes(2)
 
     // Check if agreement was written
@@ -1978,6 +1980,144 @@ describe('reporting-data-service', () => {
 
       expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', CLAIM_SUBMITTED, {
         reference: 'agreementId: AGREE_MIXED, claimId: CLAIM_MIXED_1'
+      })
+    })
+  })
+
+  describe('APPLICATION_CREATED', () => {
+    it('should process water-management application events and write to CSV', async () => {
+      const waterManagementEvent = {
+        eventData: {
+          eventType: APPLICATION_CREATED,
+          applicationType: 'water-management',
+          sbi: '800000002',
+          crn: '9000000005',
+          applicationId: 'wmg-6bd-ct2',
+          applicationReceiptDate: '2026-11-24T16:40:49.270Z',
+          applicantName: 'Matilda Test-Stanhope',
+          applicationPayload: {
+            projectLocatedDescription: 'BB7, Ribble Valley',
+            itemsPlanningToInstall: ['RESERVOIR'],
+            reservoirItems: [
+              {
+                reservoirItemWhatTypeOfReservoir: 'clay',
+                reservoirItemHowMuchWater: 62000
+              }
+            ],
+            applicant: {
+              business: {
+                name: 'Test Bracken Edge Farm',
+                address: {
+                  postalCode: 'ZZ20 1ZZ'
+                }
+              }
+            },
+            totalScore: 50,
+            scarcityScore: 25,
+            sectorScore: 20,
+            collaborationScore: 0,
+            planningAbstractionScore: 5,
+            estimatedMaxGrant: 82800
+          }
+        }
+      }
+
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(JSON.stringify(waterManagementEvent))
+        }
+      })
+
+      await processRawEvents(mockS3Client, [{ Key: 'wm.json' }], mockLogger, mockMetrics)
+
+      const wmStringifier = vi.mocked(stringify).mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][2] === '800000002')).value
+
+      expect(wmStringifier.write).toHaveBeenCalledWith([
+        'wmg-6bd-ct2',
+        '2026-11-24T16:40:49.270Z',
+        '800000002',
+        'Test Bracken Edge Farm',
+        'Matilda Test-Stanhope',
+        '9000000005',
+        'BB7, Ribble Valley (ZZ20 1ZZ)',
+        'RESERVOIR (clay, 62000L)',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        'BB7, Ribble Valley',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        'RESERVOIR',
+        '',
+        '{"reservoirItemWhatTypeOfReservoir":"clay","reservoirItemHowMuchWater":62000}',
+        '',
+        '',
+        '{"business":{"name":"Test Bracken Edge Farm","address":{"postalCode":"ZZ20 1ZZ"}}}',
+        '',
+        '',
+        50,
+        20,
+        25,
+        0,
+        5,
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        82800,
+        '',
+        '',
+        '',
+        ''
+      ])
+
+      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', APPLICATION_CREATED, {
+        reference: 'applicationId: wmg-6bd-ct2'
+      })
+    })
+
+    it('should track other application events but not write them to water-management CSV', async () => {
+      const sfiEvent = {
+        eventData: {
+          eventType: APPLICATION_CREATED,
+          applicationType: 'frps-private-beta',
+          applicationId: 'sfi-123'
+        }
+      }
+
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(JSON.stringify(sfiEvent))
+        }
+      })
+
+      await processRawEvents(mockS3Client, [{ Key: 'sfi.json' }], mockLogger, mockMetrics)
+
+      // Get the water-management applications stringifier (6th call, index 5)
+      const wmStringifier = vi.mocked(stringify).mock.results[5].value
+      expect(wmStringifier.write).not.toHaveBeenCalled()
+
+      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', APPLICATION_CREATED, {
+        reference: 'applicationId: sfi-123'
       })
     })
   })
