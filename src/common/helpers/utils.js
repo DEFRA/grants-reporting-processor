@@ -4,9 +4,9 @@ export const valueOrEmptyString = (value) => {
 
 export const wrapValueWithComma = (value) => {
   const valueOrBlank = valueOrEmptyString(value)
-  if(!(valueOrBlank instanceof String)) {
-    return valueOrBlank
-  } else {
+  if (typeof valueOrBlank === 'string') {
     return valueOrBlank.includes(',') ? `"${valueOrBlank}"` : valueOrBlank
+  } else {
+    return valueOrBlank
   }
 }

@@ -124,7 +124,7 @@ export const processWaterManagementApplication = (eventData) => {
           return value.map((v) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : v)).join('|')
         }
         if (typeof value === 'object' && value !== null) {
-          return JSON.stringify(value)
+          return '"' + JSON.stringify(value).replaceAll('"', '""') + '"'
         }
         return wrapValueWithComma(value)
       }
