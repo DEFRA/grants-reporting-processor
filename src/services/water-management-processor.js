@@ -95,9 +95,6 @@ export const processWaterManagementApplication = (eventData) => {
   const payload = eventData.applicationPayload
   const applicant = payload.applicant || {}
   const business = applicant.business || {}
-  // const address = business.address || {}
-
-  // const location = `${payload.projectLocatedDescription || ''} (${address.postalCode || ''})`.trim()
 
   return WATER_MANAGEMENT_COLUMNS.map((column) => {
     switch (column) {

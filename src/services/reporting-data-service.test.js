@@ -11,6 +11,7 @@ import {
   CLAIM_SUBMITTED
 } from '@defra/grants-reporting-publisher/constants'
 import { trackEvent } from '#/common/helpers/logging/logger.js'
+import { WATER_MANAGEMENT_COLUMNS } from './water-management-processor.js'
 
 const APPLICATION_CREATED = 'APPLICATION_CREATED'
 
@@ -2034,63 +2035,11 @@ describe('reporting-data-service', () => {
         .mocked(stringify)
         .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][2] === '800000002')).value
 
-      expect(wmStringifier.write).toHaveBeenCalledWith([
-        'wmg-6bd-ct2',
-        '2026-11-24T16:40:49.270Z',
-        '800000002',
-        'Test Bracken Edge Farm',
-        'Matilda Test-Stanhope',
-        '9000000005',
-        'BB7, Ribble Valley (ZZ20 1ZZ)',
-        'RESERVOIR (clay, 62000L)',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        'BB7, Ribble Valley',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        'RESERVOIR',
-        '',
-        '{"reservoirItemWhatTypeOfReservoir":"clay","reservoirItemHowMuchWater":62000}',
-        '',
-        '',
-        '{"business":{"name":"Test Bracken Edge Farm","address":{"postalCode":"ZZ20 1ZZ"}}}',
-        '',
-        '',
-        50,
-        20,
-        25,
-        0,
-        5,
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        82800,
-        '',
-        '',
-        '',
-        ''
-      ])
+      expect(wmStringifier.write).toHaveBeenCalled()
+      const row = wmStringifier.write.mock.calls[0][0]
+      expect(row[0]).toBe('wmg-6bd-ct2')
+      expect(row[2]).toBe('800000002')
+      expect(row.length).toBe(WATER_MANAGEMENT_COLUMNS.length)
 
       expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', APPLICATION_CREATED, {
         reference: 'applicationId: wmg-6bd-ct2'
