@@ -1,4 +1,4 @@
-import { valueOrEmptyString } from '../common/helpers/utils.js'
+import { valueOrEmptyString, wrapValueWithComma } from '../common/helpers/utils.js'
 
 export const WATER_MANAGEMENT_COLUMNS = [
   'ApplicationId',
@@ -23,16 +23,20 @@ export const WATER_MANAGEMENT_COLUMNS = [
   'whereWaterWillComeFrom',
   'havePlanningPermission',
   'planningPermissionReferenceNumber',
+  'confirmWillGetPlanningPermission',
   'haveAbstractionLicence',
   'abstractionLicenceConsentNumber',
+  'confirmWillGetAbstractionLicence',
   'confirmWantToContinueOnScorePage',
+  'confirmConsultedWithTenants',
+  'confirmHaveTenancyAgreement',
+  'confirmHaveAgreements',
   'expectedProjectStartDate__month',
   'expectedProjectStartDate__year',
   'itemsPlanningToInstall',
   'moreThanOneReservoir',
   'understandNoGuaranteedSuccessOnEstimatedCostPage',
   'acceptTermsAndConditionsOnSubmitApplicationPage',
-  'applicant',
   'detailsConfirmedAt',
   'locationFound',
   'totalScore',
@@ -71,6 +75,8 @@ export const WATER_MANAGEMENT_COLUMNS = [
   'reservoir5LowCostPerUnit',
   'reservoir5Cost',
   'reservoirCost',
+  'waterStorageCapacity',
+  'waterDistributionLength',
   'distNetworkCostPerUnit',
   'waterDistributionNetworkCost',
   'tanksCostPerUnit',
@@ -81,7 +87,8 @@ export const WATER_MANAGEMENT_COLUMNS = [
   'minGrantReached',
   'maxGrantReached',
   'guidanceRead',
-  'applicationConfirmation'
+  'applicationConfirmation',
+  'applicant'
 ]
 
 export const processWaterManagementApplication = (eventData) => {
@@ -109,8 +116,8 @@ export const processWaterManagementApplication = (eventData) => {
       default: {
         const pattern = /^reservoir\d/i
 
-        if(pattern.test(column)) {
-            return handleReservoirDetailColumn(payload.reservoirs ?? [], column)
+        if (pattern.test(column)) {
+          return handleReservoirDetailColumn(payload.reservoirs ?? [], column)
         }
         const value = payload[column]
         if (Array.isArray(value)) {
@@ -119,7 +126,7 @@ export const processWaterManagementApplication = (eventData) => {
         if (typeof value === 'object' && value !== null) {
           return JSON.stringify(value)
         }
-        return value ?? ''
+        return wrapValueWithComma(value)
       }
     }
   })
@@ -136,7 +143,7 @@ function handleReservoirDetailColumn(reservoirsArray, column) {
   } else if (column.endsWith('LowCostPerUnit')) {
     return valueOrEmptyString(reservoir.reservoirLowCostPerUnit)
   } else if (column.endsWith('Name')) {
-    return valueOrEmptyString(reservoir.name)
+    return wrapValueWithComma(reservoir.name)
   } else if (column.endsWith('Type')) {
     return valueOrEmptyString(reservoir.type)
   } else if (column.endsWith('Size')) {

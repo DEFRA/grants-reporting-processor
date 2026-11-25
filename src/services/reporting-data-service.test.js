@@ -2030,7 +2030,9 @@ describe('reporting-data-service', () => {
 
       await processRawEvents(mockS3Client, [{ Key: 'wm.json' }], mockLogger, mockMetrics)
 
-      const wmStringifier = vi.mocked(stringify).mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][2] === '800000002')).value
+      const wmStringifier = vi
+        .mocked(stringify)
+        .mock.results.find((r) => r.value.write.mock.calls.some((c) => c[0][2] === '800000002')).value
 
       expect(wmStringifier.write).toHaveBeenCalledWith([
         'wmg-6bd-ct2',

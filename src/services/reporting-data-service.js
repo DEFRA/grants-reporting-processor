@@ -15,10 +15,7 @@ import {
 } from '@defra/grants-reporting-publisher/constants'
 import { trackEvent } from '#/common/helpers/logging/logger.js'
 import { valueOrEmptyString } from '#/common/helpers/utils.js'
-import {
-  WATER_MANAGEMENT_COLUMNS,
-  processWaterManagementApplication
-} from './water-management-processor.js'
+import { WATER_MANAGEMENT_COLUMNS, processWaterManagementApplication } from './water-management-processor.js'
 
 const CSV_FILES = {
   agreements: [
