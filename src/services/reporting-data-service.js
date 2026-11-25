@@ -203,9 +203,7 @@ const writeOrHoldBackRow = ({
   } else if (eventData.eventType === APPLICATION_CREATED) {
     writeApplicationCreatedEvent({
       targets,
-      eventData,
-      metrics,
-      logger
+      eventData
     })
     trackEvent(logger, EVENT_PROCESSED, APPLICATION_CREATED, {
       reference: `applicationId: ${eventData.applicationId}`
@@ -365,7 +363,7 @@ const writeClaimSubmittedEvent = (targets, eventData) => {
   ])
 }
 
-const writeApplicationCreatedEvent = ({ targets, eventData, metrics, logger }) => {
+const writeApplicationCreatedEvent = ({ targets, eventData }) => {
   if (eventData.applicationType === 'water-management') {
     const row = processWaterManagementApplication(eventData)
     targets['water-management-applications'].stringifier.write(row)

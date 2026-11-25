@@ -111,26 +111,30 @@ export const processWaterManagementApplication = (eventData) => {
       case 'CRN':
         return valueOrEmptyString(eventData.crn)
       default: {
-        const pattern = /^reservoir\d/i
-
-        if (pattern.test(column)) {
-          return handleReservoirDetailColumn(payload.reservoirs ?? [], column)
-        }
-        const value = payload[column]
-        if (Array.isArray(value)) {
-          return value.map((v) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : v)).join('|')
-        }
-        if (typeof value === 'object' && value !== null) {
-          return '"' + JSON.stringify(value).replaceAll('"', '""') + '"'
-        }
-        return wrapValueWithComma(value)
+        return handleOtherColumns(column, payload)
       }
     }
   })
 }
 
+function handleOtherColumns(column, payload) {
+  const pattern = /^reservoir\d/i
+
+  if (pattern.test(column)) {
+    return handleReservoirDetailColumn(payload.reservoirs ?? [], column)
+  }
+  const value = payload[column]
+  if (Array.isArray(value)) {
+    return value.map((v) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : v)).join('|')
+  }
+  if (typeof value === 'object' && value !== null) {
+    return `"${JSON.stringify(value).replaceAll('"', '""')}"`
+  }
+  return wrapValueWithComma(value)
+}
+
 function handleReservoirDetailColumn(reservoirsArray, column) {
-  const reservoirIndex = parseInt(column.match(/\d+/)[0], 10) - 1
+  const reservoirIndex = Number.parseInt(column.match(/\d+/)[0], 10) - 1
   const reservoir = reservoirsArray[reservoirIndex] || {}
 
   if (column.endsWith('Cost')) {
@@ -145,6 +149,7 @@ function handleReservoirDetailColumn(reservoirsArray, column) {
     return valueOrEmptyString(reservoir.type)
   } else if (column.endsWith('Size')) {
     return valueOrEmptyString(reservoir.size)
+  } else {
+    return ''
   }
-  return ''
 }
