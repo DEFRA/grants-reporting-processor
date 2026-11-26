@@ -8,12 +8,12 @@ import { processRawEvents } from './reporting-data-service.js'
 import {
   AGREEMENT_CREATED,
   AGREEMENT_STATUS_CHANGED,
-  CLAIM_SUBMITTED
+  CLAIM_SUBMITTED,
+  APPLICATION_STATUS_CHANGED,
+  APPLICATION_CREATED
 } from '@defra/grants-reporting-publisher/constants'
 import { trackEvent } from '#/common/helpers/logging/logger.js'
 import { WATER_MANAGEMENT_COLUMNS } from './water-management-processor.js'
-
-const APPLICATION_CREATED = 'APPLICATION_CREATED'
 
 vi.mock('#/common/helpers/logging/logger.js', () => ({
   trackEvent: vi.fn()
@@ -1985,6 +1985,80 @@ describe('reporting-data-service', () => {
     })
   })
 
+  describe('APPLICATION_STATUS_CHANGED', () => {
+    it('should process water-management application status change and write to transactional CSV', async () => {
+      const event = {
+        eventData: {
+          eventType: APPLICATION_STATUS_CHANGED,
+          applicationType: 'water-management',
+          applicationId: 'wmg-123',
+          applicationStatus: 'SUBMITTED',
+          statusDate: '2026-11-26T10:00:00Z',
+          userId: 'user-wm'
+        }
+      }
+
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(JSON.stringify(event))
+        }
+      })
+
+      await processRawEvents(mockS3Client, [{ Key: 'wm-status.json' }], mockLogger, mockMetrics)
+
+      const transactionalStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
+      const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
+
+      expect(transactionalStringifier.write).toHaveBeenCalledWith([
+        'wmg-123',
+        'SUBMITTED',
+        '2026-11-26T10:00:00Z',
+        'user-wm'
+      ])
+
+      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', APPLICATION_STATUS_CHANGED, {
+        reference: 'applicationId: wmg-123, status: SUBMITTED, type: water-management'
+      })
+    })
+
+    it('should track other application status change events but NOT write them to transactional CSV', async () => {
+      const event = {
+        eventData: {
+          eventType: APPLICATION_STATUS_CHANGED,
+          applicationType: 'sfi',
+          applicationId: 'sfi-123',
+          applicationStatus: 'SUBMITTED',
+          statusDate: '2026-11-26T10:00:00Z',
+          userId: 'user-sfi'
+        }
+      }
+
+      mockS3Client.send.mockResolvedValueOnce({
+        Body: {
+          transformToString: vi.fn().mockResolvedValue(JSON.stringify(event))
+        }
+      })
+
+      await processRawEvents(mockS3Client, [{ Key: 'sfi-status.json' }], mockLogger, mockMetrics)
+
+      const transactionalStringifierIndex = vi
+        .mocked(stringify)
+        .mock.calls.findIndex((call) => call[0].columns.includes('Reference'))
+      const transactionalStringifier = vi.mocked(stringify).mock.results[transactionalStringifierIndex].value
+
+      // Should NOT have been called with the sfi event data
+      // Note: transactionalStringifier might have been called by previous tests if we didn't clear mocks
+      // but beforeEach clears all mocks.
+      expect(transactionalStringifier.write).not.toHaveBeenCalled()
+
+      expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', APPLICATION_STATUS_CHANGED, {
+        reference: 'applicationId: sfi-123, status: SUBMITTED, type: sfi'
+      })
+    })
+  })
+
   describe('APPLICATION_CREATED', () => {
     it('should process water-management application events and write to CSV', async () => {
       const waterManagementEvent = {
@@ -2042,7 +2116,7 @@ describe('reporting-data-service', () => {
       expect(row.length).toBe(WATER_MANAGEMENT_COLUMNS.length)
 
       expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', APPLICATION_CREATED, {
-        reference: 'applicationId: wmg-6bd-ct2'
+        reference: 'applicationId: wmg-6bd-ct2, type: water-management'
       })
     })
 
@@ -2068,7 +2142,7 @@ describe('reporting-data-service', () => {
       expect(wmStringifier.write).not.toHaveBeenCalled()
 
       expect(trackEvent).toHaveBeenCalledWith(mockLogger, 'event-processed', APPLICATION_CREATED, {
-        reference: 'applicationId: sfi-123'
+        reference: 'applicationId: sfi-123, type: frps-private-beta'
       })
     })
   })

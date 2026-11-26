@@ -192,7 +192,7 @@ const writeOrHoldBackRow = ({
   } else if (eventData.eventType === APPLICATION_STATUS_CHANGED) {
     writeApplicationStatusEvent(targets, eventData)
     trackEvent(logger, EVENT_PROCESSED, APPLICATION_STATUS_CHANGED, {
-      reference: `applicationId: ${eventData.applicationId}, status: ${eventData.applicationStatus}`
+      reference: `applicationId: ${eventData.applicationId}, status: ${eventData.applicationStatus}, type: ${eventData.applicationType}`
     })
   } else if (eventData.eventType === CLAIM_SUBMITTED) {
     writeClaimSubmittedEvent(targets, eventData)
@@ -206,7 +206,7 @@ const writeOrHoldBackRow = ({
       eventData
     })
     trackEvent(logger, EVENT_PROCESSED, APPLICATION_CREATED, {
-      reference: `applicationId: ${eventData.applicationId}`
+      reference: `applicationId: ${eventData.applicationId}, type: ${eventData.applicationType}`
     })
   } else {
     throw new Error(`Unknown event type: ${eventData.eventType}`)
@@ -306,13 +306,15 @@ const writeClaimStatusEvent = (targets, eventData) => {
 }
 
 const writeApplicationStatusEvent = (targets, eventData) => {
-  // Write to transactional CSV
-  targets['transactional'].stringifier.write([
-    eventData.applicationId,
-    eventData.applicationStatus,
-    eventData.statusDate,
-    eventData.userId ?? '' //there is no user id as it stands, this is a wider outstanding issue
-  ])
+  if (eventData.applicationType === 'water-management') {
+    // Write to transactional CSV
+    targets['transactional'].stringifier.write([
+      eventData.applicationId,
+      eventData.applicationStatus,
+      eventData.statusDate,
+      eventData.userId ?? '' //there is no user id as it stands, this is a wider outstanding issue
+    ])
+  }
 }
 
 const writeAgreementStatusEvent = (
