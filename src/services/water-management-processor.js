@@ -38,7 +38,6 @@ export const WATER_MANAGEMENT_COLUMNS = [
   'understandNoGuaranteedSuccessOnEstimatedCostPage',
   'acceptTermsAndConditionsOnSubmitApplicationPage',
   'detailsConfirmedAt',
-  'locationFound',
   'totalScore',
   'sectorScore',
   'scarcityScore',
@@ -87,8 +86,7 @@ export const WATER_MANAGEMENT_COLUMNS = [
   'minGrantReached',
   'maxGrantReached',
   'guidanceRead',
-  'applicationConfirmation',
-  'applicant'
+  'applicationConfirmation'
 ]
 
 export const processWaterManagementApplication = (eventData) => {

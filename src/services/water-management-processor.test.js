@@ -36,7 +36,7 @@ describe('water-management-processor', () => {
   }
 
   it('should have the correct number of columns defined', () => {
-    expect(WATER_MANAGEMENT_COLUMNS).toHaveLength(88)
+    expect(WATER_MANAGEMENT_COLUMNS).toHaveLength(86)
   })
 
   it('should process a valid water management application event', () => {
@@ -59,19 +59,14 @@ describe('water-management-processor', () => {
     expect(result[32]).toBe('RESERVOIR')
 
     // Verify scores
-    expect(result[38]).toBe(50) // totalScore
-    expect(result[39]).toBe(20) // sectorScore
-    expect(result[40]).toBe(25) // scarcityScore
-    expect(result[41]).toBe(0) // collaborationScore
-    expect(result[42]).toBe(5) // planningAbstractionScore
+    expect(result[37]).toBe(50) // totalScore
+    expect(result[38]).toBe(20) // sectorScore
+    expect(result[39]).toBe(25) // scarcityScore
+    expect(result[40]).toBe(0) // collaborationScore
+    expect(result[41]).toBe(5) // planningAbstractionScore
 
     // Verify grant
-    expect(result[82]).toBe(82800) // estimatedMaxGrant
-
-    // Verify JSON stringified applicant (last field)
-    expect(result[87]).toBe(
-      '"{""business"":{""name"":""Test Bracken Edge Farm"",""address"":{""postalCode"":""ZZ20 1ZZ""}}}"'
-    )
+    expect(result[81]).toBe(82800) // estimatedMaxGrant
   })
 
   it('should handle missing payload fields gracefully', () => {
@@ -83,7 +78,6 @@ describe('water-management-processor', () => {
     const result = processWaterManagementApplication(minimalEvent)
     expect(result[0]).toBe('min-123')
     expect(result[3]).toBe('') // BusinessName
-    expect(result[87]).toBe('') // Applicant (no value)
   })
 
   it('should correctly map reservoir details using handleReservoirDetailColumn', () => {
@@ -102,17 +96,17 @@ describe('water-management-processor', () => {
 
     const result = processWaterManagementApplication(eventWithReservoirs)
 
-    // reservoir1Name is index 43
-    expect(result[43]).toBe('Reservoir A')
-    // reservoir1Type is index 44
-    expect(result[44]).toBe('Concrete')
-    // reservoir1Size is index 45
-    expect(result[45]).toBe(50000)
-    // reservoir1Cost is index 48
-    expect(result[48]).toBe(100000)
+    // reservoir1Name is index 42
+    expect(result[42]).toBe('Reservoir A')
+    // reservoir1Type is index 43
+    expect(result[43]).toBe('Concrete')
+    // reservoir1Size is index 44
+    expect(result[44]).toBe(50000)
+    // reservoir1Cost is index 47
+    expect(result[47]).toBe(100000)
 
-    // reservoir2Name is index 49, should be empty
-    expect(result[49]).toBe('')
+    // reservoir2Name is index 48, should be empty
+    expect(result[48]).toBe('')
   })
 
   it('should wrap values containing commas in double quotes', () => {
@@ -125,6 +119,6 @@ describe('water-management-processor', () => {
     eventWithCommas.applicationPayload.reservoirs = [{ name: 'Main, North' }]
 
     const result = processWaterManagementApplication(eventWithCommas)
-    expect(result[43]).toBe('"Main, North"')
+    expect(result[42]).toBe('"Main, North"')
   })
 })
