@@ -9,9 +9,13 @@ import { GetObjectCommand } from '@aws-sdk/client-s3'
 import {
   AGREEMENT_CREATED,
   AGREEMENT_STATUS_CHANGED,
-  CLAIM_SUBMITTED
+  CLAIM_SUBMITTED,
+  APPLICATION_STATUS_CHANGED,
+  APPLICATION_CREATED
 } from '@defra/grants-reporting-publisher/constants'
 import { trackEvent } from '#/common/helpers/logging/logger.js'
+import { valueOrEmptyString } from '#/common/helpers/utils.js'
+import { WATER_MANAGEMENT_COLUMNS, processWaterManagementApplication } from './water-management-processor.js'
 
 const CSV_FILES = {
   agreements: [
@@ -36,7 +40,8 @@ const CSV_FILES = {
     'Option_value'
   ],
   transactional: ['Reference', 'Status', 'Event_dt', 'User_id'],
-  parcels: ['Agreement_ID', 'Parcel_reference']
+  parcels: ['Agreement_ID', 'Parcel_reference'],
+  'water-management-applications': WATER_MANAGEMENT_COLUMNS
 }
 
 const AGREEMENT_STATUS_INDEX = 3
@@ -184,11 +189,24 @@ const writeOrHoldBackRow = ({
     trackEvent(logger, EVENT_PROCESSED, AGREEMENT_STATUS_CHANGED, {
       reference: `agreementId: ${eventData.agreementId}, status: ${eventData.agreementStatus}`
     })
+  } else if (eventData.eventType === APPLICATION_STATUS_CHANGED) {
+    writeApplicationStatusEvent(targets, eventData)
+    trackEvent(logger, EVENT_PROCESSED, APPLICATION_STATUS_CHANGED, {
+      reference: `applicationId: ${eventData.applicationId}, status: ${eventData.applicationStatus}`
+    })
   } else if (eventData.eventType === CLAIM_SUBMITTED) {
     writeClaimSubmittedEvent(targets, eventData)
     writeClaimStatusEvent(targets, eventData)
     trackEvent(logger, EVENT_PROCESSED, CLAIM_SUBMITTED, {
       reference: `agreementId: ${eventData.agreementId}, claimId: ${eventData.claimId}`
+    })
+  } else if (eventData.eventType === APPLICATION_CREATED) {
+    writeApplicationCreatedEvent({
+      targets,
+      eventData
+    })
+    trackEvent(logger, EVENT_PROCESSED, APPLICATION_CREATED, {
+      reference: `applicationId: ${eventData.applicationId}`
     })
   } else {
     throw new Error(`Unknown event type: ${eventData.eventType}`)
@@ -277,16 +295,22 @@ const isOptionsRowComplete = (row) => {
   })
 }
 
-const valueOrEmptyString = (value) => {
-  return value ?? ''
-}
-
 const writeClaimStatusEvent = (targets, eventData) => {
   // Write to transactional CSV
   targets['transactional'].stringifier.write([
     eventData.claimId,
     eventData.claimStatus,
     eventData.claimReceiptDate,
+    eventData.userId ?? '' //there is no user id as it stands, this is a wider outstanding issue
+  ])
+}
+
+const writeApplicationStatusEvent = (targets, eventData) => {
+  // Write to transactional CSV
+  targets['transactional'].stringifier.write([
+    eventData.applicationId,
+    eventData.applicationStatus,
+    eventData.statusDate,
     eventData.userId ?? '' //there is no user id as it stands, this is a wider outstanding issue
   ])
 }
@@ -337,4 +361,11 @@ const writeClaimSubmittedEvent = (targets, eventData) => {
     valueOrEmptyString(eventData.claimPaidDate), //currently this will always be blank
     valueOrEmptyString(eventData.claimValue)
   ])
+}
+
+const writeApplicationCreatedEvent = ({ targets, eventData }) => {
+  if (eventData.applicationType === 'water-management') {
+    const row = processWaterManagementApplication(eventData)
+    targets['water-management-applications'].stringifier.write(row)
+  }
 }
